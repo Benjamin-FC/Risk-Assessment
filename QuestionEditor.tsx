@@ -11,16 +11,22 @@ interface QuestionEditorProps {
 }
 
 const renumberQuestions = (questions: Question[]): Question[] => {
+    // This function re-calculates the hierarchical numbering for all questions (e.g., 1, 1.1, 1.2, 2).
+    // It builds a tree based on follow-up relationships and then traverses it to assign numbers.
     if (questions.length === 0) return [];
     
     // Use a map for efficient lookups and modifications
+    // of question objects.
     const questionMap = new Map<number, Question>(questions.map(q => [q.id, { ...q }]));
+    
+    // Create a node map to build the tree structure.
     const nodes = new Map<number, { question: Question, children: any[] }>();
 
     questions.forEach(q => {
         nodes.set(q.id, { question: q, children: [] });
     });
 
+    // Identify all questions that are children (i.e., used in a followUp).
     const childIds = new Set<number>();
     questions.forEach(q => {
         if (q.followUp) {
@@ -29,6 +35,7 @@ const renumberQuestions = (questions: Question[]): Question[] => {
                     const parentNode = nodes.get(q.id);
                     const childNode = nodes.get(id);
                     if (parentNode && childNode) {
+                        // Add child to parent's children list if not already present.
                         if (!parentNode.children.some(c => c.question.id === childNode.question.id)) {
                             parentNode.children.push(childNode);
                         }
@@ -39,11 +46,14 @@ const renumberQuestions = (questions: Question[]): Question[] => {
         }
     });
 
+    // Root nodes are questions that are not children of any other question.
     const rootNodes = questions
         .filter(q => !childIds.has(q.id))
         .map(q => nodes.get(q.id)!);
     
+    // Recursive function to traverse the tree and assign hierarchical numbers.
     const assignNumbers = (nodesToNumber: { question: Question, children: any[] }[], prefix: string) => {
+        // Sort nodes based on their original order in the main questions array to maintain stability.
         const sortedNodes = [...nodesToNumber].sort((a, b) => {
             const indexA = questions.findIndex(q => q.id === a.question.id);
             const indexB = questions.findIndex(q => q.id === b.question.id);
@@ -51,13 +61,16 @@ const renumberQuestions = (questions: Question[]): Question[] => {
         });
 
         sortedNodes.forEach((node, index) => {
+            // Construct the new number string (e.g., "1" or "1.1").
             const newNumber = prefix ? `${prefix}.${index + 1}` : `${index + 1}`;
             
+            // Update the question's number in our temporary map.
             const questionToUpdate = questionMap.get(node.question.id);
             if (questionToUpdate) {
                 questionToUpdate.number = newNumber;
             }
 
+            // Recurse for children with the new prefix.
             if (node.children.length > 0) {
                 assignNumbers(node.children, newNumber);
             }
@@ -66,6 +79,7 @@ const renumberQuestions = (questions: Question[]): Question[] => {
 
     assignNumbers(rootNodes, '');
 
+    // Return the updated questions, preserving the original array order.
     return questions.map(q => questionMap.get(q.id)!);
 };
 

@@ -13,6 +13,11 @@ interface CachedData {
   codes: WorkCompCode[];
 }
 
+/**
+ * Fetches a list of common workers' compensation codes from the Gemini API.
+ * This is intended to populate a cache or provide a list for typeahead suggestions.
+ * @returns {Promise<WorkCompCode[]>} A promise that resolves to an array of work comp codes.
+ */
 async function fetchCodesFromGemini(): Promise<WorkCompCode[]> {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -60,22 +65,32 @@ async function fetchCodesFromGemini(): Promise<WorkCompCode[]> {
   }
 }
 
+/**
+ * Retrieves workers' compensation codes, utilizing a local cache to avoid excessive API calls.
+ * If the cache is valid, it returns the cached data. Otherwise, it fetches new data
+ * from the Gemini API and updates the cache.
+ * @returns {Promise<WorkCompCode[]>} A promise that resolves to an array of work comp codes.
+ */
 export async function getWorkCompCodes(): Promise<WorkCompCode[]> {
+  // Try to get data from localStorage cache first.
   const cachedItem = localStorage.getItem(STORAGE_KEY);
   if (cachedItem) {
     try {
       const cachedData: CachedData = JSON.parse(cachedItem);
+      // Check if the cached data is still fresh (not expired).
       if (Date.now() - cachedData.timestamp < CACHE_EXPIRATION_MS) {
         return cachedData.codes;
       }
     } catch (e) {
       console.error("Failed to parse cached work comp codes", e);
-      localStorage.removeItem(STORAGE_KEY); // Clear corrupted cache
+      localStorage.removeItem(STORAGE_KEY); // Clear corrupted cache to allow for a fresh fetch.
     }
   }
 
+  // If cache is missing or expired, fetch new codes from the API.
   const codes = await fetchCodesFromGemini();
 
+  // If the fetch was successful, update the cache in localStorage with a new timestamp.
   if (codes.length > 0) {
       const dataToCache: CachedData = {
           timestamp: Date.now(),

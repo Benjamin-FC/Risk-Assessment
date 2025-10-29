@@ -1,12 +1,19 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { Answer, Question } from './types';
 import QuestionEditor from './QuestionEditor';
 import DatabaseService from './database';
-import { GoogleGenAI } from '@google/genai';
-import { getWorkCompCodes, WorkCompCode } from './workCompService';
+import { GoogleGenAI, Type } from '@google/genai';
 
 declare const jspdf: any;
 
+/**
+ * A functional component that displays a risk-level icon based on a score.
+ * The icon and color change depending on whether the risk is high, moderate, or low.
+ * @param {object} props - The component props.
+ * @param {number} props.score - The risk score.
+ * @returns {JSX.Element} A colored SVG icon representing the risk level.
+ */
 const ResultIcon: React.FC<{ score: number }> = ({ score }) => {
   let iconData;
   if (score >= 40) { // High Risk
@@ -43,6 +50,12 @@ interface ScoreViewProps {
   businessName: string;
 }
 
+/**
+ * Displays the final score and risk profile after the quiz is completed.
+ * Provides functionality to download a PDF summary of the assessment.
+ * @param {ScoreViewProps} props - Component props including score and answered questions.
+ * @returns {JSX.Element} The score summary view.
+ */
 const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions, businessName }) => {
   const getRiskProfile = (score: number) => {
     if (score >= 40) {
@@ -137,7 +150,15 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions, busines
   );
 };
 
-const RejectionView: React.FC<{ message: string }> = ({ message }) => {
+/**
+ * A view that is displayed when the user's answers indicate a business
+ * that is too high-risk to be considered (e.g., involves explosives).
+ * @param {object} props - The component props.
+ * @param {string} props.message - The rejection message to display.
+ * @param {() => void} props.onGoBack - Callback function to reset the quiz.
+ * @returns {JSX.Element} The rejection screen.
+ */
+const RejectionView: React.FC<{ message: string; onGoBack: () => void; }> = ({ message, onGoBack }) => {
   return (
     <div className="flex flex-col items-center p-6 md:p-8 bg-white rounded-xl shadow-lg animate-fade-in">
       <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 text-red-600" viewBox="0 0 20 20" fill="currentColor">
@@ -145,50 +166,91 @@ const RejectionView: React.FC<{ message: string }> = ({ message }) => {
       </svg>
       <h2 className="text-5xl font-extrabold text-red-600 mt-6 tracking-wider">REJECTED</h2>
       <p className="text-slate-700 mt-4 text-center max-w-md">{message}</p>
+      <button
+        onClick={onGoBack}
+        className="mt-8 px-8 py-3 bg-slate-600 text-white font-semibold rounded-lg shadow-md hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-opacity-75 transition-all duration-300"
+      >
+        Go Back and Start Over
+      </button>
     </div>
   );
 };
 
-const US_STATES = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"];
+const US_STATES = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", " Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"];
 
+interface WorkCompCodeSuggestion {
+  code: string;
+  description: string;
+}
+
+/**
+ * The main application component. It manages the application's state,
+ * including the current view (quiz or editor), quiz progress, user answers,
+ * and interactions with the database and Gemini API.
+ */
 export default function App() {
   type ViewMode = 'quiz' | 'editor';
 
+  // --- State Management ---
+  // This section manages the overall state of the application, divided into several categories.
+  
+  // Quiz data state
+  // Stores the questions and a map for efficient lookups by ID.
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
-  const [questionsMap, setQuestionsMap] = useState<Record<number, Question>>({});
-  const [questionQueue, setQuestionQueue] = useState<Question[]>([]);
+  const [questionsMap, setQuestionsMap] = useState<Record<number, Question>>({}); // For quick lookups by ID
+  const [questionQueue, setQuestionQueue] = useState<Question[]>([]); // The dynamic list of questions for the current quiz
+  
+  // Quiz progress state
+  // Tracks the user's progress, score, and completion status.
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [quizComplete, setQuizComplete] = useState(false);
-  const [answers, setAnswers] = useState<Record<number, Answer | string | string[]>>({});
+  const [answers, setAnswers] = useState<Record<number, Answer | string | string[]>>({}); // Stores user's answers
+
+  // Input state for specific question types
+  // Holds temporary values for various input fields before they are submitted as answers.
   const [textInputValue, setTextInputValue] = useState('');
   
+  // State for multi-state select question
   const [selectedStates, setSelectedStates] = useState<string[]>([]);
   const [stateSearchInput, setStateSearchInput] = useState('');
   const [stateSuggestions, setStateSuggestions] = useState<string[]>([]);
   
+  // State for Work Comp Code question
   const [currentWorkCompCodeInput, setCurrentWorkCompCodeInput] = useState('');
   const [workCompCodes, setWorkCompCodes] = useState<string[]>([]);
-  const [isFetchingCompCodeDesc, setIsFetchingCompCodeDesc] = useState(false);
-  const [allWorkCompCodes, setAllWorkCompCodes] = useState<WorkCompCode[]>([]);
-  const [workCompSuggestions, setWorkCompSuggestions] = useState<WorkCompCode[]>([]);
+  const [isFetchingCompCodeDesc, setIsFetchingCompCodeDesc] = useState(false); // For fetching a single description
+  const [workCompSuggestions, setWorkCompSuggestions] = useState<WorkCompCodeSuggestion[]>([]); // For typeahead suggestions
+  const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false); // Loading state for suggestions
   
+  // State for Business Info question
   const [businessNameValue, setBusinessNameValue] = useState('');
   const [yearsValue, setYearsValue] = useState('');
   const [employeesValue, setEmployeesValue] = useState('');
   const [revenueValue, setRevenueValue] = useState('');
-  const [businessName, setBusinessName] = useState('');
+  const [businessName, setBusinessName] = useState(''); // Persists name for PDF report
   const [isLookingUpInfo, setIsLookingUpInfo] = useState(false);
   const [lookupResult, setLookupResult] = useState<string | null>(null);
+  
+  // State for rejection path
+  // Manages the state when a user's answers lead to an automatic rejection.
   const [isRejected, setIsRejected] = useState(false);
   const [rejectionMessage, setRejectionMessage] = useState('');
 
-
+  // App mode and database state
+  // Controls whether the user is taking the quiz or editing questions, and handles DB state.
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [dbService, setDbService] = useState<DatabaseService | null>(null);
   const [isDbReady, setIsDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
 
+  // Ref for debouncing API calls for work comp code suggestions
+  const debounceTimeoutRef = useRef<number | null>(null);
+
+  /**
+   * Effect to initialize the database service on component mount.
+   * It uses a singleton pattern from the DatabaseService to ensure the DB is initialized only once.
+   */
   useEffect(() => {
     const initDb = async () => {
       try {
@@ -203,6 +265,9 @@ export default function App() {
     initDb();
   }, []);
 
+  /**
+   * Callback to load questions from the database once the DB service is available.
+   */
   const loadQuestions = useCallback(async () => {
     if (!dbService) return;
     try {
@@ -214,36 +279,32 @@ export default function App() {
     }
   }, [dbService]);
 
+  // Effect to trigger loading questions as soon as the database is ready.
   useEffect(() => {
     if (isDbReady) {
       loadQuestions();
     }
   }, [isDbReady, loadQuestions]);
 
-  useEffect(() => {
-    const loadCodes = async () => {
-        try {
-            const codes = await getWorkCompCodes();
-            setAllWorkCompCodes(codes);
-        } catch (error) {
-            console.error("Failed to load work comp codes:", error);
-        }
-    };
-    loadCodes();
-  }, []);
-
+  /**
+   * Initializes or resets the quiz state.
+   * It builds a map for quick question lookups and sets up the initial queue
+   * with questions marked as `isInitial`.
+   */
   const initializeQuiz = useCallback(() => {
     if (allQuestions.length === 0) return;
 
+    // Create a hash map for O(1) question lookups by ID.
     const qMap: Record<number, Question> = allQuestions.reduce((acc, q) => {
       acc[q.id] = q;
       return acc;
     }, {} as Record<number, Question>);
 
+    // The initial set of questions are those marked with `isInitial: true`.
     const initialQueue = allQuestions.filter(q => q.isInitial);
 
     if (initialQueue.length === 0 && allQuestions.length > 0) {
-      // Fallback if no question is marked as initial
+      // Fallback if no question is marked as initial to prevent a blank screen.
       initialQueue.push(allQuestions[0]);
     }
 
@@ -255,24 +316,36 @@ export default function App() {
     setAnswers({});
   }, [allQuestions]);
   
+  // Effect to initialize the quiz whenever the set of all questions changes (e.g., after editing).
   useEffect(() => {
     initializeQuiz();
   }, [allQuestions, initializeQuiz]);
   
+  /**
+   * Handles the user's answer to the current question. This is the core logic
+   * for quiz progression, score calculation, and dynamic pathing.
+   * @param answer The answer provided by the user for the current question.
+   */
   const handleAnswer = (answer: Answer | string | string[]) => {
+    // Get the current question from the queue.
     const currentQuestion = questionQueue[currentQuestionIndex];
+    // Store the answer for the current question.
     setAnswers(prev => ({ ...prev, [currentQuestion.id]: answer }));
 
     let newScore = score;
     let nextQueue = [...questionQueue];
     
+    // Determine if the question uses standard Yes/No/N/A buttons.
     const isButtonAnswer = !currentQuestion.controlType || currentQuestion.controlType === 'buttons' || currentQuestion.controlType === 'yes_no';
 
     // Logic for button-based questions (calculates score and checks for follow-ups)
     if (isButtonAnswer && (answer === 'Yes' || answer === 'No' || answer === 'N/A')) {
+        // Add risk points associated with the answer to the total score.
         newScore += currentQuestion.riskPoints[answer as Answer];
         
         // --- Jump Logic for Initial Questions ---
+        // If an initial industry question is answered "Yes", inject a specific set of follow-up questions.
+        // This creates dynamic quiz paths based on the business type.
         if (currentQuestion.isInitial && answer === 'Yes') {
             const GENERAL_SAFETY_IDS = [100, 101, 104, 105, 106, 107];
             const INDUSTRY_QUESTION_SETS: Record<number, number[]> = {
@@ -286,40 +359,47 @@ export default function App() {
 
             const questionIdsToInject = INDUSTRY_QUESTION_SETS[currentQuestion.id] || [];
             
+            // If there are questions to inject for this industry...
             if (questionIdsToInject.length > 0) {
+                // ...map the IDs to actual question objects from the questionsMap.
                 const newDynamicQueue = questionIdsToInject
                     .map(id => questionsMap[id])
                     .filter((q): q is Question => !!q);
 
-                // Preserve the answered questions and append the new path
+                // Preserve the answered questions and append the new path.
                 const answeredQuestions = questionQueue.slice(0, currentQuestionIndex + 1);
                 const combinedQueue = [...answeredQuestions, ...newDynamicQueue];
                 
+                // Update the question queue and advance to the next question.
                 setQuestionQueue(combinedQueue);
-                // Move to the next question
                 setCurrentQuestionIndex(currentQuestionIndex + 1);
             } else {
+                // If no specific path, the initial questions are done, so complete the quiz.
                 setQuizComplete(true);
             }
             setScore(newScore);
-            return; // Exit function after jump
+            return; // Exit function early after a jump, as the queue has been fundamentally changed.
         }
         
         // --- Standard follow-up logic ---
+        // If the question has a follow-up for the given answer, inject it into the queue.
         const followUpId = currentQuestion.followUp?.[answer as Answer];
         if (followUpId && questionsMap[followUpId]) {
           const followUpQuestion = questionsMap[followUpId];
+          // Avoid adding a question that's already in the queue.
           if (!nextQueue.find(q => q.id === followUpQuestion.id)) {
+            // Insert the follow-up question immediately after the current one.
             nextQueue.splice(currentQuestionIndex + 1, 0, followUpQuestion);
           }
         }
     }
     
     // --- Special logic for questions that inject other questions ---
-    if (currentQuestion.id === 9) { // State selection
+    if (currentQuestion.id === 9) { // State selection question
+      // This handles questions that dynamically add others based on complex answers (e.g., multi-select).
       const questionsToInject: Question[] = [];
       
-      // Conditional: California question
+      // If "California" is selected, inject the Cal/OSHA question.
       if (Array.isArray(answer) && answer.includes('California')) {
         const californiaQuestion = questionsMap[600];
         if (californiaQuestion && !nextQueue.find(q => q.id === californiaQuestion.id)) {
@@ -327,21 +407,23 @@ export default function App() {
         }
       }
 
-      // Unconditional: Work comp code question
+      // After state selection, always inject the work comp code question.
       const workCompQuestion = questionsMap[700];
       if (workCompQuestion && !nextQueue.find(q => q.id === workCompQuestion.id)) {
         questionsToInject.push(workCompQuestion);
       }
 
+      // Add the collected questions to the queue.
       if (questionsToInject.length > 0) {
         nextQueue.splice(currentQuestionIndex + 1, 0, ...questionsToInject);
       }
     }
 
-
     setScore(newScore);
+    // Update the question queue with any changes made.
     setQuestionQueue(nextQueue);
 
+    // Progress to the next question or end the quiz if there are no more questions.
     if (currentQuestionIndex + 1 < nextQueue.length) {
       setCurrentQuestionIndex(prev => prev + 1);
     } else {
@@ -349,6 +431,10 @@ export default function App() {
     }
   };
   
+  /**
+   * Saves the updated list of questions to the database and reloads them.
+   * Triggered from the QuestionEditor component.
+   */
   const handleSaveQuestions = async (updatedQuestions: Question[]) => {
     if (!dbService) return;
     await dbService.saveQuestions(updatedQuestions);
@@ -356,6 +442,10 @@ export default function App() {
     setViewMode('quiz');
   };
 
+  /**
+   * Resets all questions in the database to the default set.
+   * Triggered from the QuestionEditor component.
+   */
   const handleResetQuestions = async () => {
     if (!dbService) return;
     await dbService.resetQuestions();
@@ -363,8 +453,23 @@ export default function App() {
     setViewMode('quiz');
   };
 
+  /**
+   * Resets the application state from the rejection screen to the start of the quiz.
+   */
+  const handleGoBackFromRejection = () => {
+    setIsRejected(false);
+    setRejectionMessage('');
+    initializeQuiz();
+  };
+  
   const currentQuestion = questionQueue[currentQuestionIndex];
 
+  /**
+   * Handles adding a workers' compensation code.
+   * It uses the Gemini API to fetch a description for the entered code
+   * and checks for high-risk keywords (e.g., 'explosive'). If found,
+   * it triggers the rejection view.
+   */
   const handleAddWorkCompCode = async () => {
     const code = currentWorkCompCodeInput.trim();
     if (!code) return;
@@ -382,6 +487,7 @@ export default function App() {
         const description = response.text.trim();
         const lowerCaseDescription = description.toLowerCase();
 
+        // High-risk check
         if (lowerCaseDescription.includes('explosive') || lowerCaseDescription.includes('ammunition')) {
             setIsRejected(true);
             setRejectionMessage("Application rejected due to high-risk operations involving explosives or ammunition.");
@@ -391,6 +497,7 @@ export default function App() {
 
         let newCodeEntry = code;
 
+        // Append description to the code for display if found.
         if (description && description.toLowerCase() !== 'description not found.') {
             const truncatedDesc = description.length > 100 ? description.substring(0, 100) + '...' : description;
             newCodeEntry = `${code} - ${truncatedDesc}`;
@@ -418,6 +525,11 @@ export default function App() {
     setWorkCompCodes(prev => prev.filter(code => code !== codeToRemove));
   };
 
+  /**
+   * Uses the Gemini API with Google Search grounding to look up business information
+   * from the Florida Division of Corporations website (Sunbiz.org). This provides
+   * a quick way to verify business details.
+   */
   const handleLookupBusinessInfo = async () => {
     if (!businessNameValue.trim()) return;
 
@@ -432,6 +544,7 @@ export default function App() {
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
+                // Ground the model's response in Google Search results for up-to-date information.
                 tools: [{googleSearch: {}}],
             },
         });
@@ -439,6 +552,7 @@ export default function App() {
         const text = response.text;
         setLookupResult(text);
         
+        // Auto-capitalize business name if lookup is successful.
         if (text && !text.toLowerCase().includes('not find') && !text.toLowerCase().includes('error')) {
             setBusinessNameValue(prev => prev.trim().toUpperCase());
         }
@@ -451,8 +565,12 @@ export default function App() {
     }
   };
   
+  /**
+   * Effect to reset all input fields when the current question changes,
+   * ensuring a clean state for each new question.
+   */
   useEffect(() => {
-    setTextInputValue(''); // Clear text input when question changes
+    setTextInputValue('');
     setSelectedStates([]);
     setStateSearchInput('');
     setCurrentWorkCompCodeInput('');
@@ -464,33 +582,111 @@ export default function App() {
     setLookupResult(null);
   }, [currentQuestionIndex]);
 
+  /**
+   * Effect to smoothly scroll the next question into view as the quiz progresses.
+   */
   useEffect(() => {
     if (quizComplete || !currentQuestion) return;
     const element = document.getElementById(`question-${currentQuestion.id}`);
     if (element && currentQuestionIndex > 0) {
       setTimeout(() => {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 100);
+      }, 100); // Small delay to allow rendering
     }
   }, [currentQuestionIndex, currentQuestion, quizComplete]);
   
+  /**
+   * Handles input changes for the work comp code field with debouncing.
+   * After a brief pause in typing, it calls the Gemini API to get code suggestions.
+   * It also specifically requests codes related to high-risk activities (explosives)
+   * to ensure they can be proactively identified and rejected.
+   */
   const handleWorkCompInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setCurrentWorkCompCodeInput(value);
+    setWorkCompSuggestions([]);
 
-    if (value.length > 1 && allWorkCompCodes.length > 0) {
-        const filtered = allWorkCompCodes.filter(item =>
-            item.code.toLowerCase().startsWith(value.toLowerCase()) ||
-            item.description.toLowerCase().includes(value.toLowerCase())
-        ).slice(0, 5); // Show top 5 matches
-        setWorkCompSuggestions(filtered);
+    // Clear any existing debounce timer.
+    if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+    }
+
+    if (value.length > 2) {
+        setIsFetchingSuggestions(true);
+        // Set a new timer to fetch suggestions after a delay.
+        debounceTimeoutRef.current = window.setTimeout(async () => {
+            try {
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                const prompt = `You are an expert on US workers' compensation class codes. The user is searching for codes related to "${value}". Provide a list of relevant class codes. ALWAYS include class codes related to explosives, ammunition, or pyrotechnics, regardless of the user's search term. Return a JSON object with a "codes" array. Each object should have a "code" (string) and "description" (string). Provide up to 5 suggestions in total.`;
+                
+                const response = await ai.models.generateContent({
+                    model: "gemini-2.5-flash",
+                    contents: prompt,
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: Type.OBJECT,
+                            properties: {
+                                codes: {
+                                    type: Type.ARRAY,
+                                    items: {
+                                        type: Type.OBJECT,
+                                        properties: {
+                                            code: { type: Type.STRING, description: "The 4-digit class code." },
+                                            description: { type: Type.STRING, description: "A brief description of the class code." }
+                                        },
+                                        required: ["code", "description"]
+                                    }
+                                }
+                            },
+                            required: ["codes"]
+                        }
+                    }
+                });
+                
+                const result = JSON.parse(response.text);
+                if (result && Array.isArray(result.codes)) {
+                    setWorkCompSuggestions(result.codes);
+                } else {
+                    setWorkCompSuggestions([]);
+                }
+            } catch (error) {
+                console.error("Error fetching work comp code suggestions:", error);
+                setWorkCompSuggestions([]);
+            } finally {
+                setIsFetchingSuggestions(false);
+            }
+        }, 500); // 500ms debounce delay
     } else {
+        setIsFetchingSuggestions(false);
         setWorkCompSuggestions([]);
     }
   };
 
-  const handleSuggestionClick = (code: WorkCompCode) => {
-    setCurrentWorkCompCodeInput(code.code);
+  /**
+   * Handles clicking a work comp code suggestion from the dropdown.
+   * It performs a risk check before adding the code.
+   */
+  const handleSuggestionClick = (suggestion: WorkCompCodeSuggestion) => {
+    const { code, description } = suggestion;
+
+    const lowerCaseDescription = description.toLowerCase();
+    // High-risk check
+    if (lowerCaseDescription.includes('explosive') || lowerCaseDescription.includes('ammunition')) {
+        setIsRejected(true);
+        setRejectionMessage("Application rejected due to high-risk operations involving explosives or ammunition.");
+        return;
+    }
+
+    const truncatedDesc = description.length > 100 ? description.substring(0, 100) + '...' : description;
+    const newCodeEntry = `${code} - ${truncatedDesc}`;
+
+    if (!workCompCodes.includes(newCodeEntry)) {
+        setWorkCompCodes(prev => [...prev, newCodeEntry]);
+    }
+    
+    // Clear input fields after selection.
+    setCurrentWorkCompCodeInput('');
     setWorkCompSuggestions([]);
   };
 
@@ -520,18 +716,27 @@ export default function App() {
   };
 
 
+  /**
+   * Main render function that determines which view to display based on the app's state.
+   * It handles: DB loading/error, rejection view, question editor, quiz completion (score view),
+   * and the active quiz question.
+   */
   const renderContent = () => {
+    // Show error message if database fails to initialize.
     if (dbError) {
         return <div className="text-center p-8 bg-white rounded-lg shadow-lg text-red-600">{dbError}</div>;
     }
+    // Show loading indicator while database is initializing.
     if (!isDbReady) {
         return <div className="text-center p-8 bg-white rounded-lg shadow-lg">Initializing Database...</div>;
     }
 
+    // If the quiz has been rejected, show the rejection view.
     if (isRejected) {
-      return <RejectionView message={rejectionMessage} />;
+      return <RejectionView message={rejectionMessage} onGoBack={handleGoBackFromRejection} />;
     }
-
+    
+    // If in editor mode, render the QuestionEditor component.
     if (viewMode === 'editor') {
         return (
             <QuestionEditor 
@@ -543,6 +748,7 @@ export default function App() {
         );
     }
 
+    // If the quiz is complete, show the ScoreView.
     if (quizComplete) {
       const answeredQuestionsData = questionQueue
         .filter(q => answers[q.id] !== undefined)
@@ -554,6 +760,7 @@ export default function App() {
       return <ScoreView score={score} answeredQuestions={answeredQuestionsData} businessName={businessName} />;
     }
 
+    // If the quiz is in progress, render the current question and previous answers.
     if (currentQuestion) {
       return (
         <div className="space-y-4">
@@ -561,13 +768,13 @@ export default function App() {
             const isCurrentQuestion = index === currentQuestionIndex;
             const givenAnswer = answers[q.id];
             
+            // --- Render the ACTIVE question with input controls ---
             if (isCurrentQuestion) {
               const isButtonType = !q.controlType || q.controlType === 'buttons' || q.controlType === 'yes_no';
-              const isTextType = q.controlType === 'text';
               const isNumericType = q.controlType === 'numeric';
+              const isBusinessInfoType = q.controlType === 'business_info';
               const isMultiStateSelectType = q.controlType === 'multi_state_select';
               const isWorkCompCodeType = q.controlType === 'work_comp_code';
-              const isBusinessInfoType = q.controlType === 'business_info';
 
               return (
                 <div key={q.id} id={`question-${q.id}`} className="p-6 md:p-8 bg-white rounded-xl shadow-xl border border-slate-200/50 transition-all duration-500 animate-fade-in">
@@ -576,6 +783,7 @@ export default function App() {
                   </div>
                   <h2 className="text-2xl font-bold text-slate-800 leading-relaxed mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
                   
+                  {/* Render Yes/No/NA buttons */}
                   {isButtonType && (
                     <div className={`grid grid-cols-1 ${q.controlType === 'yes_no' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-4`}>
                       {(q.controlType === 'yes_no' ? ['Yes', 'No'] : ['Yes', 'No', 'N/A'] as Answer[]).map((ans) => (
@@ -590,6 +798,7 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* Render numeric input field */}
                   {isNumericType && (
                     <div className="mt-4 flex flex-col items-center">
                       <input
@@ -613,6 +822,7 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* Render Business Info form */}
                   {isBusinessInfoType && (
                     <div className="mt-4 space-y-6 flex flex-col items-center">
                         <div className="w-full max-w-lg">
@@ -720,6 +930,7 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* Render multi-state select control */}
                   {isMultiStateSelectType && (
                       <div className="mt-4 flex flex-col items-center gap-4">
                         <div className="relative w-full max-w-xs">
@@ -770,6 +981,7 @@ export default function App() {
                       </div>
                   )}
                   
+                  {/* Render Work Comp Code input control */}
                   {isWorkCompCodeType && (
                     <div className="mt-4 flex flex-col items-center gap-4">
                         <div className="relative w-full max-w-xs">
@@ -801,7 +1013,18 @@ export default function App() {
                               )}
                             </button>
                           </div>
-                           {workCompSuggestions.length > 0 && (
+                          {isFetchingSuggestions && (
+                            <div className="absolute z-10 w-full bg-white border border-slate-300 rounded-lg shadow-lg mt-1 p-4 text-center">
+                                <div className="flex items-center justify-center text-slate-500">
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-slate-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <span>Searching for codes...</span>
+                                </div>
+                            </div>
+                          )}
+                           {!isFetchingSuggestions && workCompSuggestions.length > 0 && (
                             <ul className="absolute z-10 w-full bg-white border border-slate-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
                                 {workCompSuggestions.map(item => (
                                     <li
@@ -842,7 +1065,7 @@ export default function App() {
               );
             }
             
-            // Render previously answered questions
+            // --- Render previously answered questions in a read-only state ---
             return (
               <div key={q.id} id={`question-${q.id}`} className="p-4 bg-white rounded-lg shadow-md border-l-4 border-green-500 transition-all animate-fade-in-fast">
                 <div className="flex justify-between items-center">
@@ -861,7 +1084,8 @@ export default function App() {
         </div>
       );
     }
-
+    
+    // Fallback loading message if quiz is not ready yet.
     return <div>Loading questions...</div>;
   };
 

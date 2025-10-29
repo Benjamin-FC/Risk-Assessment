@@ -17,23 +17,30 @@ class DatabaseService {
     this.db = db;
   }
 
-  // Static factory to handle async initialization of the database
+  // Static factory to handle async initialization of the database.
+  // This ensures the database is a singleton and only initialized once.
   public static async getInstance(): Promise<DatabaseService> {
+    // If the singleton promise already exists, return it to avoid re-initialization.
     if (dbPromise) {
       return dbPromise;
     }
+    // Otherwise, create a new promise for initialization.
     dbPromise = (async () => {
-      // Initialize sql.js
+      // Initialize sql.js,
+      // locating the wasm file from the CDN.
       const SQL = await initSqlJs({
         locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${file}`
       });
       
+      // Attempt to load a previously saved database from localStorage.
       const storedDb = localStorage.getItem(DB_STORAGE_KEY);
       let db;
 
       // Load existing DB from localStorage or create a new one
+      // if it doesn't exist or is corrupt.
       if (storedDb) {
         try {
+            // The stored DB is a JSON array of numbers, which needs to be converted back to a Uint8Array.
             const dbArray = JSON.parse(storedDb);
             db = new SQL.Database(new Uint8Array(dbArray));
         } catch (e) {
@@ -47,11 +54,13 @@ class DatabaseService {
       const instance = new DatabaseService(db);
       
       // Check if DB is new and needs schema/seeding
+      // by checking for the existence of the 'Questions' table.
       const tablesResult = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='Questions';");
       if (tablesResult.length === 0 || tablesResult[0].values.length === 0) {
         await instance.createSchemaAndSeed();
       } else {
-        // Migration for existing databases
+        // Simple migration for existing databases: check for the 'ControlType' column.
+        // This makes the app more robust if users have an older version of the DB in localStorage.
         const columns = db.exec("PRAGMA table_info(Questions);");
         if (columns.length > 0) {
             const hasControlType = columns[0].values.some((row: any) => row[1] === 'ControlType');
