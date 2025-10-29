@@ -133,7 +133,7 @@ class DatabaseService {
         
         // Sanitize controlType to prevent crashes from legacy data in localStorage
         const loadedControlType = (row[7] || 'buttons') as string;
-        const validControlTypes: Array<Question['controlType']> = ['buttons', 'text', 'yes_no', 'multi_state_select', 'work_comp_code', 'numeric'];
+        const validControlTypes: Array<Question['controlType']> = ['buttons', 'text', 'yes_no', 'multi_state_select', 'work_comp_code', 'numeric', 'business_info'];
         const controlType: Question['controlType'] = validControlTypes.includes(loadedControlType as any) ? loadedControlType as Question['controlType'] : 'buttons';
 
         questions.push({

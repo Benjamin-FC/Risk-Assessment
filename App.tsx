@@ -38,9 +38,10 @@ type AnsweredQuestion = {
 interface ScoreViewProps {
   score: number;
   answeredQuestions: AnsweredQuestion[];
+  businessName: string;
 }
 
-const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions }) => {
+const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions, businessName }) => {
   const getRiskProfile = (score: number) => {
     if (score >= 40) {
       return {
@@ -71,7 +72,7 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions }) => {
 
     // Title
     doc.setFontSize(22);
-    doc.text("PEO Client Risk Assessment Report", 105, 20, { align: "center" });
+    doc.text(businessName ? `${businessName} - ABC Report` : "ABC Report", 105, 20, { align: "center" });
 
     // Score and Profile
     doc.setFontSize(16);
@@ -108,7 +109,7 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions }) => {
       }
     });
 
-    doc.save("Risk-Assessment-Report.pdf");
+    doc.save(businessName ? `${businessName.replace(/\s+/g, '_')}-ABC-Report.pdf` : "ABC-Report.pdf");
   };
 
   return (
@@ -151,6 +152,13 @@ export default function App() {
   
   const [currentWorkCompCodeInput, setCurrentWorkCompCodeInput] = useState('');
   const [workCompCodes, setWorkCompCodes] = useState<string[]>([]);
+  
+  const [businessNameValue, setBusinessNameValue] = useState('');
+  const [yearsValue, setYearsValue] = useState('');
+  const [employeesValue, setEmployeesValue] = useState('');
+  const [revenueValue, setRevenueValue] = useState('');
+  const [businessName, setBusinessName] = useState('');
+
 
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [dbService, setDbService] = useState<DatabaseService | null>(null);
@@ -337,6 +345,10 @@ export default function App() {
     setMultiSelectInputValues([]); // Clear multi-select dropdown value when question changes
     setCurrentWorkCompCodeInput('');
     setWorkCompCodes([]);
+    setBusinessNameValue('');
+    setYearsValue('');
+    setEmployeesValue('');
+    setRevenueValue('');
   }, [currentQuestionIndex]);
 
   useEffect(() => {
@@ -376,7 +388,7 @@ export default function App() {
           answer: answers[q.id],
         }));
 
-      return <ScoreView score={score} answeredQuestions={answeredQuestionsData} />;
+      return <ScoreView score={score} answeredQuestions={answeredQuestionsData} businessName={businessName} />;
     }
 
     if (currentQuestion) {
@@ -392,13 +404,14 @@ export default function App() {
               const isNumericType = q.controlType === 'numeric';
               const isMultiStateSelectType = q.controlType === 'multi_state_select';
               const isWorkCompCodeType = q.controlType === 'work_comp_code';
+              const isBusinessInfoType = q.controlType === 'business_info';
 
               return (
-                <div key={q.id} id={`question-${q.id}`} className="p-6 md:p-8 bg-white rounded-xl shadow-lg transition-all duration-500 animate-fade-in">
-                  <div className="flex justify-between items-center mb-4">
-                    <p className="text-sm font-semibold text-indigo-600">Question {index + 1}</p>
+                <div key={q.id} id={`question-${q.id}`} className="p-6 md:p-8 bg-white rounded-xl shadow-xl border border-gray-200/50 transition-all duration-500 animate-fade-in">
+                  <div className="flex justify-between items-center mb-6">
+                    <p className="text-sm font-bold bg-indigo-600 text-white px-4 py-1 rounded-full shadow-md">Question {index + 1}</p>
                   </div>
-                  <h2 className="text-2xl font-bold text-gray-800 mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
+                  <h2 className="text-2xl font-bold text-gray-800 leading-relaxed mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
                   
                   {isButtonType && (
                     <div className={`grid grid-cols-1 ${q.controlType === 'yes_no' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-4`}>
@@ -436,45 +449,72 @@ export default function App() {
                       </button>
                     </div>
                   )}
-                  
-                  {isTextType && (
-                    <div className="mt-4 flex flex-col items-center">
-                      <input
-                        type="text"
-                        className="w-full max-w-xs p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                        value={textInputValue}
-                        onChange={(e) => setTextInputValue(e.target.value)}
-                        placeholder="Enter your answer..."
-                        aria-label={`Answer for: ${q.text}`}
-                      />
-                      <button
-                        onClick={() => handleAnswer(textInputValue)}
-                        disabled={!textInputValue.trim()}
-                        className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
-                      >
-                        Continue
-                      </button>
-                    </div>
-                  )}
 
-                  {isMultiStateSelectType && (
-                    <div className="mt-4 flex flex-col items-center">
-                        <select
-                            multiple
-                            className="w-full max-w-xs p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition h-48"
-                            value={multiSelectInputValues}
-                            onChange={(e) => {
-                                const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
-                                setMultiSelectInputValues(selectedOptions);
-                            }}
-                            aria-label={`Answer for: ${q.text}`}
-                        >
-                            {US_STATES.map(state => <option key={state} value={state}>{state}</option>)}
-                        </select>
-                         <p className="text-sm text-gray-500 mt-2">Hold Ctrl (or Cmd on Mac) to select multiple states.</p>
+                  {isBusinessInfoType && (
+                    <div className="mt-4 flex flex-col items-center gap-4">
+                        <div className="w-full max-w-xs">
+                            <label htmlFor="business-name-input" className="block text-sm font-medium text-gray-700 mb-1">Name of business</label>
+                            <input
+                                id="business-name-input"
+                                type="text"
+                                className="w-full p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                value={businessNameValue}
+                                onChange={(e) => setBusinessNameValue(e.target.value)}
+                                placeholder="e.g., Acme Corp"
+                                aria-label="Name of business"
+                            />
+                        </div>
+                        <div className="w-full max-w-xs">
+                            <label htmlFor="years-input" className="block text-sm font-medium text-gray-700 mb-1">Number of years in business</label>
+                            <input
+                                id="years-input"
+                                type="number"
+                                className="w-full p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                value={yearsValue}
+                                onChange={(e) => {
+                                    const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                                    setYearsValue(numericValue);
+                                }}
+                                placeholder="e.g., 5"
+                                aria-label="Number of years in business"
+                            />
+                        </div>
+                        <div className="w-full max-w-xs">
+                            <label htmlFor="employees-input" className="block text-sm font-medium text-gray-700 mb-1">Number of employees</label>
+                            <input
+                                id="employees-input"
+                                type="number"
+                                className="w-full p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                value={employeesValue}
+                                onChange={(e) => {
+                                    const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                                    setEmployeesValue(numericValue);
+                                }}
+                                placeholder="e.g., 20"
+                                aria-label="Number of employees"
+                            />
+                        </div>
+                         <div className="w-full max-w-xs">
+                            <label htmlFor="revenue-input" className="block text-sm font-medium text-gray-700 mb-1">Estimated Annual Revenue ($M)</label>
+                            <input
+                                id="revenue-input"
+                                type="number"
+                                className="w-full p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                value={revenueValue}
+                                onChange={(e) => {
+                                    const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                                    setRevenueValue(numericValue);
+                                }}
+                                placeholder="e.g., 5"
+                                aria-label="Estimated Annual Revenue in Millions"
+                            />
+                        </div>
                         <button
-                            onClick={() => handleAnswer(multiSelectInputValues)}
-                            disabled={multiSelectInputValues.length === 0}
+                            onClick={() => {
+                                setBusinessName(businessNameValue);
+                                handleAnswer(`Name: ${businessNameValue}, Years: ${yearsValue}, Employees: ${employeesValue}, Revenue: $${revenueValue}M`);
+                            }}
+                            disabled={!businessNameValue.trim() || !yearsValue.trim() || !employeesValue.trim() || !revenueValue.trim()}
                             className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
                         >
                             Continue
@@ -482,69 +522,93 @@ export default function App() {
                     </div>
                   )}
 
+                  {isMultiStateSelectType && (
+                      <div className="mt-4 flex flex-col items-center">
+                          <select
+                              multiple
+                              className="w-full max-w-xs p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition h-48"
+                              value={multiSelectInputValues}
+                              onChange={(e) => setMultiSelectInputValues(Array.from(e.target.selectedOptions, option => option.value))}
+                              aria-label={`Answer for: ${q.text}`}
+                          >
+                              {US_STATES.map(state => (
+                                  <option key={state} value={state}>{state}</option>
+                              ))}
+                          </select>
+                          <button
+                              onClick={() => handleAnswer(multiSelectInputValues)}
+                              disabled={multiSelectInputValues.length === 0}
+                              className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
+                          >
+                              Continue
+                          </button>
+                      </div>
+                  )}
+                  
                   {isWorkCompCodeType && (
                     <div className="mt-4 flex flex-col items-center gap-4">
-                        <div className="flex w-full max-w-md gap-2">
-                            <input
-                                type="text"
-                                className="flex-grow p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                                value={currentWorkCompCodeInput}
-                                onChange={(e) => setCurrentWorkCompCodeInput(e.target.value)}
-                                placeholder="Enter a code..."
-                                aria-label="Enter a workers' compensation code"
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleAddWorkCompCode(); }}
-                            />
-                            <button
-                                onClick={handleAddWorkCompCode}
-                                disabled={!currentWorkCompCodeInput.trim()}
-                                className="px-6 py-3 bg-indigo-500 text-white font-semibold rounded-lg shadow-sm hover:bg-indigo-600 disabled:bg-gray-400 transition-all"
-                            >
-                                Add
-                            </button>
+                        <div className="flex w-full max-w-xs gap-2">
+                           <input
+                            type="text"
+                            className="flex-grow p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                            value={currentWorkCompCodeInput}
+                            onChange={(e) => setCurrentWorkCompCodeInput(e.target.value)}
+                            placeholder="Enter code..."
+                            aria-label="Enter workers' compensation code"
+                          />
+                          <button
+                            onClick={handleAddWorkCompCode}
+                            disabled={!currentWorkCompCodeInput.trim()}
+                            className="px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg shadow-sm hover:bg-gray-700 disabled:bg-gray-300 transition-all"
+                          >
+                            Add
+                          </button>
                         </div>
-
+                        
                         {workCompCodes.length > 0 && (
-                            <div className="w-full max-w-md p-3 border-2 border-gray-200 rounded-lg bg-gray-50">
-                                <ul className="flex flex-wrap gap-2">
-                                    {workCompCodes.map((code, index) => (
-                                        <li key={`${code}-${index}`} className="flex items-center gap-2 bg-indigo-100 text-indigo-800 text-sm font-medium px-3 py-1 rounded-full">
-                                            <span>{code}</span>
-                                            <button
-                                                onClick={() => handleRemoveWorkCompCode(code)}
-                                                className="text-indigo-600 hover:text-indigo-800 font-bold"
-                                                aria-label={`Remove code ${code}`}
-                                            >
-                                                &times;
-                                            </button>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
+                          <div className="w-full max-w-xs p-3 border-2 border-gray-200 rounded-lg bg-gray-50 flex flex-wrap gap-2">
+                            {workCompCodes.map(code => (
+                              <div key={code} className="flex items-center gap-2 bg-indigo-100 text-indigo-800 text-sm font-semibold px-3 py-1 rounded-full">
+                                <span>{code}</span>
+                                <button
+                                  onClick={() => handleRemoveWorkCompCode(code)}
+                                  className="text-indigo-500 hover:text-indigo-700"
+                                  aria-label={`Remove code ${code}`}
+                                >
+                                  &times;
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         )}
-
+                        
                         <button
-                            onClick={() => handleAnswer(workCompCodes)}
-                            disabled={workCompCodes.length === 0}
-                            className="mt-2 w-full max-w-md px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
+                          onClick={() => handleAnswer(workCompCodes)}
+                          disabled={workCompCodes.length === 0}
+                          className="w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
                         >
-                            Continue
+                          Continue
                         </button>
                     </div>
                   )}
 
                 </div>
               );
-            } else {
-              // --- Render previously answered questions ---
-              const answerDisplay = Array.isArray(givenAnswer) ? givenAnswer.join(', ') : String(givenAnswer);
-              return (
-                <div key={q.id} className="p-4 bg-gray-200 rounded-lg transition-all duration-500 animate-fade-in-fast">
-                   <p className="text-sm font-semibold text-gray-500">Question {index + 1}</p>
-                   <p className="font-semibold text-gray-700 mt-1">{q.text}</p>
-                   <p className="text-indigo-700 font-medium mt-2">{answerDisplay}</p>
-                </div>
-              );
             }
+            
+            const answerDisplay = Array.isArray(givenAnswer) ? givenAnswer.join(', ') : givenAnswer;
+            
+            return (
+              <div key={q.id} className="p-4 bg-white rounded-xl shadow-md border-l-4 border-green-500 transition-all animate-fade-in-fast">
+                <div className="flex justify-between items-center">
+                    <p className="font-bold text-gray-800">{q.text}</p>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                </div>
+                <p className="mt-2 text-gray-600 font-medium">{answerDisplay}</p>
+              </div>
+            );
           })}
         </div>
       );
@@ -553,27 +617,25 @@ export default function App() {
   };
   
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-start p-4 pt-8 md:pt-12 transition-colors duration-500">
-      <div className="w-full max-w-3xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-3">
-                <svg className="w-10 h-10 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.286Zm0 13.036h.008v.008h-.008v-.008Z" />
-                </svg>
-                <h1 className="text-3xl font-bold text-gray-800 tracking-tight">PEO Client Risk Assessment</h1>
-            </div>
-            <button
-                onClick={() => setViewMode(prev => prev === 'quiz' ? 'editor' : 'quiz')}
-                className="p-2 rounded-full hover:bg-gray-200 transition-colors"
-                aria-label={viewMode === 'quiz' ? 'Open Question Editor' : 'Return to Quiz'}
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
-                </svg>
-            </button>
-        </div>
-        {renderContent()}
+    <div className="p-4 md:p-6 min-h-screen">
+      <div className="max-w-3xl mx-auto">
+        <header className="text-center mb-8">
+          <h1 className="text-4xl font-extrabold text-gray-800 tracking-tight">ABC</h1>
+          {!quizComplete && <p className="mt-2 text-lg text-gray-600">Client Risk Assessment</p>}
+        </header>
+        <main>
+          {renderContent()}
+        </main>
+        {!quizComplete && (
+            <footer className="text-center mt-8">
+                <button 
+                    onClick={() => setViewMode(prev => prev === 'quiz' ? 'editor' : 'quiz')}
+                    className="text-sm text-gray-500 hover:text-indigo-600 font-medium transition"
+                >
+                    {viewMode === 'quiz' ? 'Edit Questions' : 'Back to Quiz'}
+                </button>
+            </footer>
+        )}
       </div>
     </div>
   );

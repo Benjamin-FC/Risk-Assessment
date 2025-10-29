@@ -1,4 +1,3 @@
-
 import React from 'react';
 import type { Question, Answer } from './types';
 
@@ -13,10 +12,10 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ question, allQuestions, onC
 
   const handleInputChange = (field: keyof Question, value: any) => {
     if (field === 'controlType') {
-      const newType = value as 'buttons' | 'text' | 'yes_no' | 'multi_state_select' | 'work_comp_code' | 'numeric';
+      const newType = value as 'buttons' | 'text' | 'yes_no' | 'multi_state_select' | 'work_comp_code' | 'numeric' | 'business_info';
       const updatedQuestion: Question = { ...question, controlType: newType };
 
-      if (newType === 'text' || newType === 'numeric' || newType === 'multi_state_select' || newType === 'work_comp_code') {
+      if (newType === 'text' || newType === 'numeric' || newType === 'multi_state_select' || newType === 'work_comp_code' || newType === 'business_info') {
         // When switching to text, zero out risk points and clear follow-ups
         updatedQuestion.riskPoints = { Yes: 0, No: 0, 'N/A': 0 };
         updatedQuestion.followUp = {};
@@ -100,6 +99,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ question, allQuestions, onC
           <option value="yes_no">Buttons (Yes/No)</option>
           <option value="text">Text Input (Free-form)</option>
           <option value="numeric">Numeric Input</option>
+          <option value="business_info">Business Info (Name/Yrs/Emp/Rev $M)</option>
           <option value="multi_state_select">Multi-State Select</option>
           <option value="work_comp_code">Work Comp Code Lookup</option>
         </select>
