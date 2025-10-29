@@ -1,4 +1,3 @@
-
 import type { Question, Answer } from './types';
 import { ALL_QUESTIONS as DEFAULT_QUESTIONS } from './data/quizData';
 
@@ -48,16 +47,18 @@ class DatabaseService {
       const instance = new DatabaseService(db);
       
       // Check if DB is new and needs schema/seeding
-      const tables = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='Questions';");
-      if (tables.length === 0) {
+      const tablesResult = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='Questions';");
+      if (tablesResult.length === 0 || tablesResult[0].values.length === 0) {
         await instance.createSchemaAndSeed();
       } else {
         // Migration for existing databases
         const columns = db.exec("PRAGMA table_info(Questions);");
-        const hasControlType = columns[0].values.some((row: any) => row[1] === 'ControlType');
-        if (!hasControlType) {
-            db.run("ALTER TABLE Questions ADD COLUMN ControlType TEXT DEFAULT 'buttons' NOT NULL;");
-            instance.persistDb();
+        if (columns.length > 0) {
+            const hasControlType = columns[0].values.some((row: any) => row[1] === 'ControlType');
+            if (!hasControlType) {
+                db.run("ALTER TABLE Questions ADD COLUMN ControlType TEXT DEFAULT 'buttons' NOT NULL;");
+                instance.persistDb();
+            }
         }
       }
 
@@ -129,17 +130,23 @@ class DatabaseService {
     const questions: Question[] = [];
     while (questionsStmt.step()) {
         const row = questionsStmt.get();
+        
+        // Sanitize controlType to prevent crashes from legacy data in localStorage
+        const loadedControlType = (row[7] || 'buttons') as string;
+        const validControlTypes: Array<Question['controlType']> = ['buttons', 'text', 'yes_no', 'multi_state_select', 'work_comp_code'];
+        const controlType: Question['controlType'] = validControlTypes.includes(loadedControlType as any) ? loadedControlType as Question['controlType'] : 'buttons';
+
         questions.push({
             id: row[0] as number,
             text: row[1] as string,
-            number: row[2] as string,
+            number: (row[2] ?? '') as string,
             isInitial: !!row[3],
             riskPoints: {
                 Yes: row[4] as number,
                 No: row[5] as number,
                 'N/A': row[6] as number,
             },
-            controlType: (row[7] || 'buttons') as 'buttons' | 'text' | 'yes_no',
+            controlType: controlType,
             followUp: {}
         });
     }

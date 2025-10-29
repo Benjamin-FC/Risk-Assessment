@@ -13,10 +13,10 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ question, allQuestions, onC
 
   const handleInputChange = (field: keyof Question, value: any) => {
     if (field === 'controlType') {
-      const newType = value as 'buttons' | 'text' | 'yes_no';
+      const newType = value as 'buttons' | 'text' | 'yes_no' | 'multi_state_select' | 'work_comp_code';
       const updatedQuestion: Question = { ...question, controlType: newType };
 
-      if (newType === 'text') {
+      if (newType === 'text' || newType === 'multi_state_select' || newType === 'work_comp_code') {
         // When switching to text, zero out risk points and clear follow-ups
         updatedQuestion.riskPoints = { Yes: 0, No: 0, 'N/A': 0 };
         updatedQuestion.followUp = {};
@@ -99,6 +99,8 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ question, allQuestions, onC
           <option value="buttons">Buttons (Yes/No/NA)</option>
           <option value="yes_no">Buttons (Yes/No)</option>
           <option value="text">Text Input</option>
+          <option value="multi_state_select">Multi-State Select</option>
+          <option value="work_comp_code">Work Comp Code Lookup</option>
         </select>
       </div>
       

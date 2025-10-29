@@ -5,12 +5,13 @@ export const ALL_QUESTIONS: Question[] = [
   // These are presented to the user first to determine the quiz path.
   { id: 7, number: '1', isInitial: true, text: 'Number of years in business', controlType: 'text', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
   { id: 8, number: '2', isInitial: true, text: 'Number of employees', controlType: 'text', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
-  { id: 1, number: '3', isInitial: true, text: 'Is your business primarily in the Construction industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
-  { id: 2, number: '4', isInitial: true, text: 'Is your business primarily in the Roofing industry?', riskPoints: { 'Yes': 10, 'No': 0, 'N/A': 0 } },
-  { id: 3, number: '5', isInitial: true, text: 'Is your business primarily in the Manufacturing industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
-  { id: 4, number: '6', isInitial: true, text: 'Is your business primarily in the Transportation industry?', riskPoints: { 'Yes': 8, 'No': 0, 'N/A': 0 } },
-  { id: 5, number: '7', isInitial: true, text: 'Is your business primarily in the Healthcare industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
-  { id: 6, number: '8', isInitial: true, text: 'My business is primarily office-based or in a lower-risk industry not listed above.', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
+  { id: 9, number: '3', isInitial: true, text: 'What states do you operate in? (Select all that apply)', controlType: 'multi_state_select', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
+  { id: 1, number: '4', isInitial: true, text: 'Is your business primarily in the Construction industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
+  { id: 2, number: '5', isInitial: true, text: 'Is your business primarily in the Roofing industry?', riskPoints: { 'Yes': 10, 'No': 0, 'N/A': 0 } },
+  { id: 3, number: '6', isInitial: true, text: 'Is your business primarily in the Manufacturing industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
+  { id: 4, number: '7', isInitial: true, text: 'Is your business primarily in the Transportation industry?', riskPoints: { 'Yes': 8, 'No': 0, 'N/A': 0 } },
+  { id: 5, number: '8', isInitial: true, text: 'Is your business primarily in the Healthcare industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
+  { id: 6, number: '9', isInitial: true, text: 'My business is primarily office-based or in a lower-risk industry not listed above.', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
 
   // --- QUESTION POOLS ---
   // These questions are injected into the quiz based on answers to the initial questions.
@@ -41,4 +42,10 @@ export const ALL_QUESTIONS: Question[] = [
   // Hazardous Materials
   { id: 500, number: '', text: 'Do you handle hazardous materials or chemicals?', riskPoints: { 'Yes': 2, 'No': 0, 'N/A': 0 }, followUp: { 'Yes': 501 } },
   { id: 501, number: '', text: 'Do you have a Hazard Communication Program and provide employees with access to Safety Data Sheets (SDS)?', riskPoints: { 'Yes': 0, 'No': 10, 'N/A': 0 } },
+
+  // --- California Specific ---
+  { id: 600, number: '', text: 'Since you operate in California, additional regulations apply (e.g., Cal/OSHA). Do you have specific programs in place to address these?', controlType: 'yes_no', riskPoints: { 'Yes': 0, 'No': 15, 'N/A': 0 } },
+
+  // --- Work Comp Code ---
+  { id: 700, number: '', text: 'Please enter your workers\' compensation class codes. Add each code one at a time.', controlType: 'work_comp_code', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } }
 ];

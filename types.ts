@@ -6,7 +6,7 @@ export interface Question {
   text: string;
   number: string;
   isInitial?: boolean;
-  controlType?: 'buttons' | 'text' | 'yes_no';
+  controlType?: 'buttons' | 'text' | 'yes_no' | 'multi_state_select' | 'work_comp_code';
   riskPoints: {
     Yes: number;
     No: number;

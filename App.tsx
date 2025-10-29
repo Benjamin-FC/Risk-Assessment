@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Answer, Question } from './types';
 import QuestionEditor from './QuestionEditor';
@@ -33,7 +32,7 @@ const ResultIcon: React.FC<{ score: number }> = ({ score }) => {
 
 type AnsweredQuestion = {
   text: string;
-  answer: string | Answer;
+  answer: string | Answer | string[];
 };
 
 interface ScoreViewProps {
@@ -84,12 +83,13 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions }) => {
 
     // Table of answers
     const tableColumn = ["Question", "Your Answer"];
-    const tableRows: (string | Answer)[][] = [];
+    const tableRows: (string | Answer | string[])[][] = [];
 
     answeredQuestions.forEach(item => {
+      const answerDisplay = Array.isArray(item.answer) ? item.answer.join(', ') : String(item.answer);
       const rowData = [
         item.text,
-        String(item.answer)
+        answerDisplay
       ];
       tableRows.push(rowData);
     });
@@ -134,6 +134,8 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions }) => {
   );
 };
 
+const US_STATES = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"];
+
 export default function App() {
   type ViewMode = 'quiz' | 'editor';
 
@@ -143,8 +145,11 @@ export default function App() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [quizComplete, setQuizComplete] = useState(false);
-  const [answers, setAnswers] = useState<Record<number, Answer | string>>({});
+  const [answers, setAnswers] = useState<Record<number, Answer | string | string[]>>({});
   const [textInputValue, setTextInputValue] = useState('');
+  const [multiSelectInputValues, setMultiSelectInputValues] = useState<string[]>([]);
+  const [workCompCodes, setWorkCompCodes] = useState<string[]>([]);
+  const [currentWorkCompCodeInput, setCurrentWorkCompCodeInput] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [dbService, setDbService] = useState<DatabaseService | null>(null);
   const [isDbReady, setIsDbReady] = useState(false);
@@ -208,7 +213,7 @@ export default function App() {
     initializeQuiz();
   }, [allQuestions, initializeQuiz]);
   
-  const handleAnswer = (answer: Answer | string) => {
+  const handleAnswer = (answer: Answer | string | string[]) => {
     const currentQuestion = questionQueue[currentQuestionIndex];
     setAnswers(prev => ({ ...prev, [currentQuestion.id]: answer }));
 
@@ -263,7 +268,30 @@ export default function App() {
           }
         }
     }
-    // For text-based questions, we just record the answer and move on.
+    
+    // --- Special logic for questions that inject other questions ---
+    if (currentQuestion.id === 9) { // State selection
+      const questionsToInject: Question[] = [];
+      
+      // Conditional: California question
+      if (Array.isArray(answer) && answer.includes('California')) {
+        const californiaQuestion = questionsMap[600];
+        if (californiaQuestion && !nextQueue.find(q => q.id === californiaQuestion.id)) {
+          questionsToInject.push(californiaQuestion);
+        }
+      }
+
+      // Unconditional: Work comp code question
+      const workCompQuestion = questionsMap[700];
+      if (workCompQuestion && !nextQueue.find(q => q.id === workCompQuestion.id)) {
+        questionsToInject.push(workCompQuestion);
+      }
+
+      if (questionsToInject.length > 0) {
+        nextQueue.splice(currentQuestionIndex + 1, 0, ...questionsToInject);
+      }
+    }
+
 
     setScore(newScore);
     setQuestionQueue(nextQueue);
@@ -288,11 +316,14 @@ export default function App() {
     await loadQuestions();
     setViewMode('quiz');
   };
-  
+
   const currentQuestion = questionQueue[currentQuestionIndex];
   
   useEffect(() => {
     setTextInputValue(''); // Clear text input when question changes
+    setMultiSelectInputValues([]); // Clear multi-select dropdown value when question changes
+    setWorkCompCodes([]);
+    setCurrentWorkCompCodeInput('');
   }, [currentQuestionIndex]);
 
   useEffect(() => {
@@ -304,7 +335,7 @@ export default function App() {
       }, 100);
     }
   }, [currentQuestionIndex, currentQuestion, quizComplete]);
-  
+
   const renderContent = () => {
     if (dbError) {
         return <div className="text-center p-8 bg-white rounded-lg shadow-lg text-red-600">{dbError}</div>;
@@ -344,6 +375,10 @@ export default function App() {
             
             if (isCurrentQuestion) {
               const isButtonType = !q.controlType || q.controlType === 'buttons' || q.controlType === 'yes_no';
+              const isTextType = q.controlType === 'text';
+              const isMultiStateSelectType = q.controlType === 'multi_state_select';
+              const isWorkCompCodeType = q.controlType === 'work_comp_code';
+
               return (
                 <div key={q.id} id={`question-${q.id}`} className="p-6 md:p-8 bg-white rounded-xl shadow-md transition-all duration-500 animate-fade-in">
                   <div className="flex justify-between items-center mb-4">
@@ -351,7 +386,7 @@ export default function App() {
                   </div>
                   <h2 className="text-2xl font-bold text-slate-800 mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
                   
-                  {isButtonType ? (
+                  {isButtonType && (
                     <div className={`grid grid-cols-1 ${q.controlType === 'yes_no' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-4`}>
                       {(q.controlType === 'yes_no' ? ['Yes', 'No'] : ['Yes', 'No', 'N/A'] as Answer[]).map((ans) => (
                         <button
@@ -363,7 +398,9 @@ export default function App() {
                         </button>
                       ))}
                     </div>
-                  ) : (
+                  )}
+
+                  {isTextType && (
                     <div className="mt-4 flex flex-col items-center">
                       <input
                         type="text"
@@ -382,14 +419,99 @@ export default function App() {
                       </button>
                     </div>
                   )}
+
+                  {isMultiStateSelectType && (
+                    <div className="mt-4 flex flex-col items-center">
+                        <select
+                            multiple
+                            className="w-full max-w-xs p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition h-48"
+                            value={multiSelectInputValues}
+                            onChange={(e) => {
+                                const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+                                setMultiSelectInputValues(selectedOptions);
+                            }}
+                            aria-label={`Answer for: ${q.text}`}
+                        >
+                            {US_STATES.map(state => <option key={state} value={state}>{state}</option>)}
+                        </select>
+                         <p className="text-sm text-slate-500 mt-2">Hold Ctrl (or Cmd on Mac) to select multiple states.</p>
+                        <button
+                            onClick={() => handleAnswer(multiSelectInputValues)}
+                            disabled={multiSelectInputValues.length === 0}
+                            className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
+                        >
+                            Continue
+                        </button>
+                    </div>
+                  )}
+
+                  {isWorkCompCodeType && (
+                    <div className="mt-4 flex flex-col items-center w-full max-w-md mx-auto">
+                      <div className="flex w-full gap-2">
+                        <input
+                          type="text"
+                          className="flex-grow p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                          value={currentWorkCompCodeInput}
+                          onChange={(e) => setCurrentWorkCompCodeInput(e.target.value)}
+                          placeholder="Enter code (e.g., 8810)"
+                          aria-label="Enter workers compensation code"
+                        />
+                        <button
+                          onClick={() => {
+                            if (currentWorkCompCodeInput.trim()) {
+                              setWorkCompCodes([...workCompCodes, currentWorkCompCodeInput.trim()]);
+                              setCurrentWorkCompCodeInput('');
+                            }
+                          }}
+                          disabled={!currentWorkCompCodeInput.trim()}
+                          className="px-6 py-3 bg-slate-600 text-white font-semibold rounded-lg shadow-md hover:bg-slate-700 disabled:bg-slate-400 transition-all"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      
+                      {workCompCodes.length > 0 && (
+                        <div className="w-full mt-4 p-3 border border-slate-200 rounded-lg bg-slate-50">
+                          <h3 className="text-sm font-semibold text-slate-600 mb-2">Added Codes:</h3>
+                          <ul className="flex flex-wrap gap-2">
+                            {workCompCodes.map((code, index) => (
+                              <li key={index} className="flex items-center gap-2 bg-indigo-100 text-indigo-800 text-sm font-medium px-3 py-1 rounded-full border border-indigo-200">
+                                <span>{code}</span>
+                                <button
+                                  onClick={() => {
+                                    setWorkCompCodes(workCompCodes.filter((_, i) => i !== index));
+                                  }}
+                                  className="text-indigo-500 hover:text-indigo-700 focus:outline-none"
+                                  aria-label={`Remove code ${code}`}
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                  </svg>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => handleAnswer(workCompCodes)}
+                        disabled={workCompCodes.length === 0}
+                        className="mt-6 w-full px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
+                      >
+                        Continue
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             } else { // Past question
+              const answerDisplay = Array.isArray(givenAnswer) ? (givenAnswer as string[]).join(', ') : String(givenAnswer);
               return (
                 <div key={q.id} id={`question-${q.id}`} className="p-4 border-b border-slate-200 animate-fade-in">
                   <p className="text-md font-semibold text-slate-600">{q.text}</p>
                   <div className="mt-2 p-3 bg-white rounded-lg inline-block border border-slate-200">
-                    <p className="text-slate-800 font-medium whitespace-pre-wrap">{String(givenAnswer)}</p>
+                    <p className="text-slate-800 font-medium whitespace-pre-wrap">{answerDisplay}</p>
                   </div>
                 </div>
               );
