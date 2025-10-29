@@ -1,0 +1,5 @@
+{
+  "name": "PEO Client Risk Assessment",
+  "description": "An interactive questionnaire to help businesses evaluate their risk profile. Answer a series of questions about your operations and safety practices to receive a risk score and an initial assessment.",
+  "requestFramePermissions": []
+}
