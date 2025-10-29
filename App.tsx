@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Answer, Question } from './types';
 import QuestionEditor from './QuestionEditor';
 import DatabaseService from './database';
+import { GoogleGenAI } from '@google/genai';
 
 declare const jspdf: any;
 
@@ -158,6 +159,8 @@ export default function App() {
   const [employeesValue, setEmployeesValue] = useState('');
   const [revenueValue, setRevenueValue] = useState('');
   const [businessName, setBusinessName] = useState('');
+  const [isLookingUpInfo, setIsLookingUpInfo] = useState(false);
+  const [lookupResult, setLookupResult] = useState<string | null>(null);
 
 
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
@@ -339,6 +342,35 @@ export default function App() {
   const handleRemoveWorkCompCode = (codeToRemove: string) => {
     setWorkCompCodes(prev => prev.filter(code => code !== codeToRemove));
   };
+
+  const handleLookupBusinessInfo = async () => {
+    if (!businessNameValue.trim()) return;
+
+    setIsLookingUpInfo(true);
+    setLookupResult(null);
+
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const prompt = `Act as a business information analyst. Search the official Florida Division of Corporations website (Sunbiz.org) for the business named "${businessNameValue}". Provide a concise summary including its current status (e.g., Active), filing date, and if available, the most recent annual report revenue. If you cannot find the exact business or the information, state that clearly.`;
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                tools: [{googleSearch: {}}],
+            },
+        });
+
+        const text = response.text;
+        setLookupResult(text);
+
+    } catch (error) {
+        console.error("Error looking up business info:", error);
+        setLookupResult("Sorry, an error occurred while trying to look up the business information.");
+    } finally {
+        setIsLookingUpInfo(false);
+    }
+  };
   
   useEffect(() => {
     setTextInputValue(''); // Clear text input when question changes
@@ -349,6 +381,7 @@ export default function App() {
     setYearsValue('');
     setEmployeesValue('');
     setRevenueValue('');
+    setLookupResult(null);
   }, [currentQuestionIndex]);
 
   useEffect(() => {
@@ -454,16 +487,43 @@ export default function App() {
                     <div className="mt-4 flex flex-col items-center gap-4">
                         <div className="w-full max-w-xs">
                             <label htmlFor="business-name-input" className="block text-sm font-medium text-gray-700 mb-1">Name of business</label>
-                            <input
-                                id="business-name-input"
-                                type="text"
-                                className="w-full p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                                value={businessNameValue}
-                                onChange={(e) => setBusinessNameValue(e.target.value)}
-                                placeholder="e.g., Acme Corp"
-                                aria-label="Name of business"
-                            />
+                            <div className="flex w-full gap-2">
+                                <input
+                                    id="business-name-input"
+                                    type="text"
+                                    className="flex-grow p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                    value={businessNameValue}
+                                    onChange={(e) => setBusinessNameValue(e.target.value)}
+                                    placeholder="e.g., Acme Corp"
+                                    aria-label="Name of business"
+                                />
+                                <button
+                                  onClick={handleLookupBusinessInfo}
+                                  disabled={!businessNameValue.trim() || isLookingUpInfo}
+                                  className="px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg shadow-sm hover:bg-slate-700 disabled:bg-gray-400 transition-all"
+                                  aria-label="Look up business information"
+                                >
+                                  {isLookingUpInfo ? '...' : 'Look Up'}
+                                </button>
+                            </div>
                         </div>
+                        
+                        {isLookingUpInfo && (
+                            <div className="w-full max-w-xs p-3 mt-2 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg text-sm flex items-center gap-2">
+                                <svg className="animate-spin h-4 w-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Searching Florida public records...</span>
+                            </div>
+                        )}
+
+                        {lookupResult && !isLookingUpInfo && (
+                          <div className="w-full max-w-xs p-3 mt-2 bg-blue-100 border border-blue-200 text-blue-800 rounded-lg text-sm animate-fade-in-fast">
+                              {lookupResult}
+                          </div>
+                        )}
+
                         <div className="w-full max-w-xs">
                             <label htmlFor="years-input" className="block text-sm font-medium text-gray-700 mb-1">Number of years in business</label>
                             <input
