@@ -1,7 +1,10 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Answer, Question } from './types';
 import QuestionEditor from './QuestionEditor';
 import DatabaseService from './database';
+
+declare const jspdf: any;
 
 const ResultIcon: React.FC<{ score: number }> = ({ score }) => {
   let iconData;
@@ -28,12 +31,17 @@ const ResultIcon: React.FC<{ score: number }> = ({ score }) => {
   );
 };
 
+type AnsweredQuestion = {
+  text: string;
+  answer: string | Answer;
+};
+
 interface ScoreViewProps {
   score: number;
-  onRestart: () => void;
+  answeredQuestions: AnsweredQuestion[];
 }
 
-const ScoreView: React.FC<ScoreViewProps> = ({ score, onRestart }) => {
+const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions }) => {
   const getRiskProfile = (score: number) => {
     if (score >= 40) {
       return {
@@ -58,6 +66,51 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, onRestart }) => {
 
   const profile = getRiskProfile(score);
 
+  const handleDownloadPdf = () => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+
+    // Title
+    doc.setFontSize(22);
+    doc.text("PEO Client Risk Assessment Report", 105, 20, { align: "center" });
+
+    // Score and Profile
+    doc.setFontSize(16);
+    doc.text(`Final Risk Score: ${score}`, 20, 40);
+    doc.text(`Risk Profile: ${profile.level}`, 20, 50);
+
+    doc.setFontSize(12);
+    doc.text(profile.message, 20, 60, { maxWidth: 170 });
+
+    // Table of answers
+    const tableColumn = ["Question", "Your Answer"];
+    const tableRows: (string | Answer)[][] = [];
+
+    answeredQuestions.forEach(item => {
+      const rowData = [
+        item.text,
+        String(item.answer)
+      ];
+      tableRows.push(rowData);
+    });
+
+    (doc as any).autoTable({
+      startY: 80,
+      head: [tableColumn],
+      body: tableRows,
+      theme: 'striped',
+      headStyles: { fillColor: [74, 85, 104] }, // slate-700
+      didDrawPage: function(data: any) {
+        const pageCount = doc.internal.getNumberOfPages();
+        doc.setFontSize(10);
+        doc.text("This assessment is for informational purposes only.", 20, doc.internal.pageSize.height - 15);
+        doc.text(`Page ${data.pageNumber} of ${pageCount}`, doc.internal.pageSize.width - 35, doc.internal.pageSize.height - 15);
+      }
+    });
+
+    doc.save("Risk-Assessment-Report.pdf");
+  };
+
   return (
     <div className="flex flex-col items-center p-6 md:p-8 bg-white rounded-xl shadow-lg animate-fade-in">
       <ResultIcon score={score} />
@@ -69,12 +122,14 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, onRestart }) => {
         <p className={`mt-2 font-semibold ${profile.color}`}>{profile.level} Profile</p>
       </div>
       <p className="text-center text-slate-700 max-w-md">{profile.message}</p>
-      <button
-        onClick={onRestart}
-        className="mt-8 w-full md:w-auto px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-opacity-75 transition-all duration-300"
-      >
-        Retake Assessment
-      </button>
+      <div className="mt-8 w-full">
+        <button
+          onClick={handleDownloadPdf}
+          className="w-full px-8 py-3 bg-slate-600 text-white font-semibold rounded-lg shadow-md hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-opacity-75 transition-all duration-300"
+        >
+          Download PDF Report
+        </button>
+      </div>
     </div>
   );
 };
@@ -88,7 +143,8 @@ export default function App() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [quizComplete, setQuizComplete] = useState(false);
-  const [answers, setAnswers] = useState<Record<number, Answer>>({});
+  const [answers, setAnswers] = useState<Record<number, Answer | string>>({});
+  const [textInputValue, setTextInputValue] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [dbService, setDbService] = useState<DatabaseService | null>(null);
   const [isDbReady, setIsDbReady] = useState(false);
@@ -152,53 +208,64 @@ export default function App() {
     initializeQuiz();
   }, [allQuestions, initializeQuiz]);
   
-  const handleAnswer = (answer: Answer) => {
+  const handleAnswer = (answer: Answer | string) => {
     const currentQuestion = questionQueue[currentQuestionIndex];
     setAnswers(prev => ({ ...prev, [currentQuestion.id]: answer }));
 
-    const newScore = score + currentQuestion.riskPoints[answer];
-    setScore(newScore);
-    
-    // --- Jump Logic for Initial Questions ---
-    if (currentQuestion.isInitial && answer === 'Yes') {
-        const GENERAL_SAFETY_IDS = [100, 101, 104, 105, 106, 107];
-        const INDUSTRY_QUESTION_SETS: Record<number, number[]> = {
-          1: [200, ...GENERAL_SAFETY_IDS], // Construction: Driving + General
-          2: [300, 200, ...GENERAL_SAFETY_IDS], // Roofing: Heights + Driving + General
-          3: [400, 401, ...GENERAL_SAFETY_IDS], // Manufacturing: Lifting + Machinery + General
-          4: [200, ...GENERAL_SAFETY_IDS], // Transportation: Driving + General
-          5: [400, 500, ...GENERAL_SAFETY_IDS], // Healthcare: Lifting + Hazmat + General
-          6: GENERAL_SAFETY_IDS, // "None of the above" -> General path
-        };
-
-        const questionIdsToInject = INDUSTRY_QUESTION_SETS[currentQuestion.id] || [];
-
-        if (questionIdsToInject.length > 0) {
-            const newQueue = questionIdsToInject
-                .map(id => questionsMap[id])
-                .filter((q): q is Question => !!q);
-
-            setQuestionQueue(newQueue);
-            setCurrentQuestionIndex(0);
-        } else {
-            setQuizComplete(true);
-        }
-        return; // Exit function after jump
-    }
-    
-    // --- Standard Logic for other questions ---
+    let newScore = score;
     let nextQueue = [...questionQueue];
     
-    // Standard follow-up logic for questions like "Do you have claims?"
-    const followUpId = currentQuestion.followUp?.[answer];
-    if (followUpId && questionsMap[followUpId]) {
-      const followUpQuestion = questionsMap[followUpId];
-      if (!nextQueue.find(q => q.id === followUpQuestion.id)) {
-        // Splice it in right after the current question
-        nextQueue.splice(currentQuestionIndex + 1, 0, followUpQuestion);
-      }
+    const isButtonAnswer = !currentQuestion.controlType || currentQuestion.controlType === 'buttons' || currentQuestion.controlType === 'yes_no';
+
+    // Logic for button-based questions (calculates score and checks for follow-ups)
+    if (isButtonAnswer && (answer === 'Yes' || answer === 'No' || answer === 'N/A')) {
+        newScore += currentQuestion.riskPoints[answer as Answer];
+        
+        // --- Jump Logic for Initial Questions ---
+        if (currentQuestion.isInitial && answer === 'Yes') {
+            const GENERAL_SAFETY_IDS = [100, 101, 104, 105, 106, 107];
+            const INDUSTRY_QUESTION_SETS: Record<number, number[]> = {
+              1: [200, ...GENERAL_SAFETY_IDS], // Construction: Driving + General
+              2: [300, 200, ...GENERAL_SAFETY_IDS], // Roofing: Heights + Driving + General
+              3: [400, 401, ...GENERAL_SAFETY_IDS], // Manufacturing: Lifting + Machinery + General
+              4: [200, ...GENERAL_SAFETY_IDS], // Transportation: Driving + General
+              5: [400, 500, ...GENERAL_SAFETY_IDS], // Healthcare: Lifting + Hazmat + General
+              6: GENERAL_SAFETY_IDS, // "None of the above" -> General path
+            };
+
+            const questionIdsToInject = INDUSTRY_QUESTION_SETS[currentQuestion.id] || [];
+            
+            if (questionIdsToInject.length > 0) {
+                const newDynamicQueue = questionIdsToInject
+                    .map(id => questionsMap[id])
+                    .filter((q): q is Question => !!q);
+
+                // Preserve the answered questions and append the new path
+                const answeredQuestions = questionQueue.slice(0, currentQuestionIndex + 1);
+                const combinedQueue = [...answeredQuestions, ...newDynamicQueue];
+                
+                setQuestionQueue(combinedQueue);
+                // Move to the next question
+                setCurrentQuestionIndex(currentQuestionIndex + 1);
+            } else {
+                setQuizComplete(true);
+            }
+            setScore(newScore);
+            return; // Exit function after jump
+        }
+        
+        // --- Standard follow-up logic ---
+        const followUpId = currentQuestion.followUp?.[answer as Answer];
+        if (followUpId && questionsMap[followUpId]) {
+          const followUpQuestion = questionsMap[followUpId];
+          if (!nextQueue.find(q => q.id === followUpQuestion.id)) {
+            nextQueue.splice(currentQuestionIndex + 1, 0, followUpQuestion);
+          }
+        }
     }
-    
+    // For text-based questions, we just record the answer and move on.
+
+    setScore(newScore);
     setQuestionQueue(nextQueue);
 
     if (currentQuestionIndex + 1 < nextQueue.length) {
@@ -206,11 +273,6 @@ export default function App() {
     } else {
       setQuizComplete(true);
     }
-  };
-
-  const handleRestartQuiz = () => {
-    initializeQuiz();
-    setViewMode('quiz');
   };
   
   const handleSaveQuestions = async (updatedQuestions: Question[]) => {
@@ -228,15 +290,18 @@ export default function App() {
   };
   
   const currentQuestion = questionQueue[currentQuestionIndex];
+  
+  useEffect(() => {
+    setTextInputValue(''); // Clear text input when question changes
+  }, [currentQuestionIndex]);
 
   useEffect(() => {
     if (quizComplete || !currentQuestion) return;
     const element = document.getElementById(`question-${currentQuestion.id}`);
-    // Only scroll if it's not the very first question, to avoid a jarring jump on load
     if (element && currentQuestionIndex > 0) {
       setTimeout(() => {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 100); // A small delay helps ensure the element is fully rendered
+      }, 100);
     }
   }, [currentQuestionIndex, currentQuestion, quizComplete]);
   
@@ -260,47 +325,75 @@ export default function App() {
     }
 
     if (quizComplete) {
-      return <ScoreView score={score} onRestart={handleRestartQuiz} />;
+      const answeredQuestionsData = questionQueue
+        .filter(q => answers[q.id] !== undefined)
+        .map(q => ({
+          text: q.text,
+          answer: answers[q.id],
+        }));
+
+      return <ScoreView score={score} answeredQuestions={answeredQuestionsData} />;
     }
 
     if (currentQuestion) {
       return (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {questionQueue.slice(0, currentQuestionIndex + 1).map((q, index) => {
             const isCurrentQuestion = index === currentQuestionIndex;
             const givenAnswer = answers[q.id];
-
-            return (
-              <div key={q.id} id={`question-${q.id}`} className={`p-6 md:p-8 bg-white rounded-xl shadow-lg transition-all duration-500 ${isCurrentQuestion ? 'animate-fade-in' : 'opacity-70'}`}>
-                <div className="flex justify-between items-center mb-4">
-                  <p className="text-sm font-semibold text-indigo-600">Question {q.number}</p>
-                   { !isCurrentQuestion && givenAnswer &&
-                      <div className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-full shadow-sm">{givenAnswer}</div>
-                  }
-                </div>
-                <h2 className="text-2xl font-bold text-slate-800 mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {(['Yes', 'No', 'N/A'] as Answer[]).map((ans) => {
-                    const isSelected = givenAnswer === ans;
-                    return (
+            
+            if (isCurrentQuestion) {
+              const isButtonType = !q.controlType || q.controlType === 'buttons' || q.controlType === 'yes_no';
+              return (
+                <div key={q.id} id={`question-${q.id}`} className="p-6 md:p-8 bg-white rounded-xl shadow-md transition-all duration-500 animate-fade-in">
+                  <div className="flex justify-between items-center mb-4">
+                    <p className="text-sm font-semibold text-indigo-600">Question {index + 1}</p>
+                  </div>
+                  <h2 className="text-2xl font-bold text-slate-800 mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
+                  
+                  {isButtonType ? (
+                    <div className={`grid grid-cols-1 ${q.controlType === 'yes_no' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-4`}>
+                      {(q.controlType === 'yes_no' ? ['Yes', 'No'] : ['Yes', 'No', 'N/A'] as Answer[]).map((ans) => (
+                        <button
+                          key={ans}
+                          onClick={() => handleAnswer(ans)}
+                          className="w-full px-4 py-3 border-2 font-semibold rounded-lg transition-all duration-200 border-slate-300 text-slate-700 hover:bg-slate-100 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-100"
+                        >
+                          {ans}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-4 flex flex-col items-center">
+                      <input
+                        type="text"
+                        className="w-full max-w-xs p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                        value={textInputValue}
+                        onChange={(e) => setTextInputValue(e.target.value)}
+                        placeholder="Enter your answer..."
+                        aria-label={`Answer for: ${q.text}`}
+                      />
                       <button
-                        key={ans}
-                        onClick={() => isCurrentQuestion && handleAnswer(ans)}
-                        disabled={!isCurrentQuestion}
-                        className={`w-full px-4 py-3 border-2 font-semibold rounded-lg transition-all duration-200
-                          ${isCurrentQuestion ? 'border-slate-300 text-slate-700 hover:bg-slate-100 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400' : 'border-transparent'}
-                          ${isSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100'}
-                          ${!isCurrentQuestion && !isSelected ? 'bg-slate-50 text-slate-400' : ''}
-                          ${!isCurrentQuestion ? 'cursor-default' : ''}
-                        `}
+                        onClick={() => handleAnswer(textInputValue)}
+                        disabled={!textInputValue.trim()}
+                        className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
                       >
-                        {ans}
+                        Continue
                       </button>
-                    );
-                  })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            );
+              );
+            } else { // Past question
+              return (
+                <div key={q.id} id={`question-${q.id}`} className="p-4 border-b border-slate-200 animate-fade-in">
+                  <p className="text-md font-semibold text-slate-600">{q.text}</p>
+                  <div className="mt-2 p-3 bg-white rounded-lg inline-block border border-slate-200">
+                    <p className="text-slate-800 font-medium whitespace-pre-wrap">{String(givenAnswer)}</p>
+                  </div>
+                </div>
+              );
+            }
           })}
         </div>
       );

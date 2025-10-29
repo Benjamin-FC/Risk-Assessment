@@ -3,12 +3,14 @@ import type { Question } from '../types';
 export const ALL_QUESTIONS: Question[] = [
   // --- INITIAL QUESTIONS ---
   // These are presented to the user first to determine the quiz path.
-  { id: 1, number: '1', isInitial: true, text: 'Is your business primarily in the Construction industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
-  { id: 2, number: '2', isInitial: true, text: 'Is your business primarily in the Roofing industry?', riskPoints: { 'Yes': 10, 'No': 0, 'N/A': 0 } },
-  { id: 3, number: '3', isInitial: true, text: 'Is your business primarily in the Manufacturing industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
-  { id: 4, number: '4', isInitial: true, text: 'Is your business primarily in the Transportation industry?', riskPoints: { 'Yes': 8, 'No': 0, 'N/A': 0 } },
-  { id: 5, number: '5', isInitial: true, text: 'Is your business primarily in the Healthcare industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
-  { id: 6, number: '6', isInitial: true, text: 'My business is primarily office-based or in a lower-risk industry not listed above.', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
+  { id: 7, number: '1', isInitial: true, text: 'Number of years in business', controlType: 'text', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
+  { id: 8, number: '2', isInitial: true, text: 'Number of employees', controlType: 'text', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
+  { id: 1, number: '3', isInitial: true, text: 'Is your business primarily in the Construction industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
+  { id: 2, number: '4', isInitial: true, text: 'Is your business primarily in the Roofing industry?', riskPoints: { 'Yes': 10, 'No': 0, 'N/A': 0 } },
+  { id: 3, number: '5', isInitial: true, text: 'Is your business primarily in the Manufacturing industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
+  { id: 4, number: '6', isInitial: true, text: 'Is your business primarily in the Transportation industry?', riskPoints: { 'Yes': 8, 'No': 0, 'N/A': 0 } },
+  { id: 5, number: '7', isInitial: true, text: 'Is your business primarily in the Healthcare industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
+  { id: 6, number: '8', isInitial: true, text: 'My business is primarily office-based or in a lower-risk industry not listed above.', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
 
   // --- QUESTION POOLS ---
   // These questions are injected into the quiz based on answers to the initial questions.

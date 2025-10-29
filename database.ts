@@ -1,3 +1,4 @@
+
 import type { Question, Answer } from './types';
 import { ALL_QUESTIONS as DEFAULT_QUESTIONS } from './data/quizData';
 
@@ -47,9 +48,17 @@ class DatabaseService {
       const instance = new DatabaseService(db);
       
       // Check if DB is new and needs schema/seeding
-      const tables = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='Questionnaires';");
+      const tables = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='Questions';");
       if (tables.length === 0) {
         await instance.createSchemaAndSeed();
+      } else {
+        // Migration for existing databases
+        const columns = db.exec("PRAGMA table_info(Questions);");
+        const hasControlType = columns[0].values.some((row: any) => row[1] === 'ControlType');
+        if (!hasControlType) {
+            db.run("ALTER TABLE Questions ADD COLUMN ControlType TEXT DEFAULT 'buttons' NOT NULL;");
+            instance.persistDb();
+        }
       }
 
       return instance;
@@ -81,7 +90,7 @@ class DatabaseService {
         RiskPointsYes INTEGER NOT NULL DEFAULT 0,
         RiskPointsNo INTEGER NOT NULL DEFAULT 0,
         RiskPointsNA INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (QuestionnaireID) REFERENCES Questionnaires(QuestionnaireID) ON DELETE CASCADE
+        ControlType TEXT DEFAULT 'buttons' NOT NULL
       );
     `);
     this.db.run(`
@@ -110,7 +119,7 @@ class DatabaseService {
     const questionnaireId = 1;
 
     const questionsStmt = this.db.prepare(`
-        SELECT QuestionID, Text, Number, IsInitial, RiskPointsYes, RiskPointsNo, RiskPointsNA
+        SELECT QuestionID, Text, Number, IsInitial, RiskPointsYes, RiskPointsNo, RiskPointsNA, ControlType
         FROM Questions 
         WHERE QuestionnaireID = ? 
         ORDER BY DisplayOrder
@@ -130,6 +139,7 @@ class DatabaseService {
                 No: row[5] as number,
                 'N/A': row[6] as number,
             },
+            controlType: (row[7] || 'buttons') as 'buttons' | 'text' | 'yes_no',
             followUp: {}
         });
     }
@@ -165,8 +175,8 @@ class DatabaseService {
     this.db.run('DELETE FROM Questions WHERE QuestionnaireID = ?', [questionnaireId]);
     
     const questionStmt = this.db.prepare(`
-        INSERT INTO Questions (QuestionID, QuestionnaireID, Text, Number, IsInitial, DisplayOrder, RiskPointsYes, RiskPointsNo, RiskPointsNA)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO Questions (QuestionID, QuestionnaireID, Text, Number, IsInitial, DisplayOrder, RiskPointsYes, RiskPointsNo, RiskPointsNA, ControlType)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const ruleStmt = this.db.prepare(`
         INSERT INTO FollowUpRules (ParentQuestionID, ChildQuestionID, TriggerAnswer)
@@ -184,7 +194,8 @@ class DatabaseService {
                 index, // Use array index for display order
                 q.riskPoints.Yes,
                 q.riskPoints.No,
-                q.riskPoints['N/A']
+                q.riskPoints['N/A'],
+                q.controlType || 'buttons'
             ]);
             if(q.followUp) {
                 for (const [answer, childId] of Object.entries(q.followUp)) {

@@ -1,3 +1,4 @@
+
 export type Answer = 'Yes' | 'No' | 'N/A';
 
 export interface Question {
@@ -5,6 +6,7 @@ export interface Question {
   text: string;
   number: string;
   isInitial?: boolean;
+  controlType?: 'buttons' | 'text' | 'yes_no';
   riskPoints: {
     Yes: number;
     No: number;
