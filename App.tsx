@@ -79,79 +79,7 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, onRestart }) => {
   );
 };
 
-interface QuizViewProps {
-  question: Question;
-  questionNumber: number;
-  totalQuestions: number;
-  onAnswer: (answer: Answer) => void;
-  onBack: () => void;
-  canGoBack: boolean;
-}
-
-const QuizView: React.FC<QuizViewProps> = ({ question, questionNumber, totalQuestions, onAnswer, onBack, canGoBack }) => {
-  const [isAnimating, setIsAnimating] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setIsAnimating(true), 50);
-    return () => clearTimeout(timer);
-  }, [question.id]);
-
-  const handleAnswerClick = (answer: Answer) => {
-    setIsAnimating(false);
-    setTimeout(() => onAnswer(answer), 300);
-  };
-  
-  const progressPercentage = totalQuestions > 1 ? ((questionNumber - 1) / (totalQuestions -1)) * 100 : 0;
-
-  return (
-    <div className={`p-6 md:p-8 bg-white rounded-xl shadow-lg transition-opacity duration-300 ${isAnimating ? 'opacity-100' : 'opacity-0'}`}>
-      <div className="mb-6">
-        <div className="flex justify-between items-center mb-2">
-          <p className="text-sm font-semibold text-indigo-600">Question {question.number}</p>
-          <p className="text-sm font-medium text-slate-500">{questionNumber} / {totalQuestions}</p>
-        </div>
-        <div className="w-full bg-slate-200 rounded-full h-2">
-          <div
-            className="bg-indigo-500 h-2 rounded-full transition-all duration-500 ease-out"
-            style={{ width: `${progressPercentage}%` }}
-          ></div>
-        </div>
-      </div>
-      <h2 className="text-2xl font-bold text-slate-800 mb-8 min-h-[6rem] flex items-center">{question.text}</h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {(['Yes', 'No', 'N/A'] as Answer[]).map((answer) => (
-          <button
-            key={answer}
-            onClick={() => handleAnswerClick(answer)}
-            className="w-full px-4 py-3 border-2 border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-100 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-opacity-75 transition-all duration-200"
-          >
-            {answer}
-          </button>
-        ))}
-      </div>
-      <div className="mt-6 flex justify-start">
-        <button
-          onClick={onBack}
-          disabled={!canGoBack}
-          className="px-6 py-2 text-slate-600 font-semibold rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-          </svg>
-          Back
-        </button>
-      </div>
-    </div>
-  );
-};
-
 export default function App() {
-  type HistoryState = {
-    questionQueue: Question[];
-    currentQuestionIndex: number;
-    score: number;
-  };
-  
   type ViewMode = 'quiz' | 'editor';
 
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
@@ -160,7 +88,7 @@ export default function App() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [quizComplete, setQuizComplete] = useState(false);
-  const [history, setHistory] = useState<HistoryState[]>([]);
+  const [answers, setAnswers] = useState<Record<number, Answer>>({});
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [dbService, setDbService] = useState<DatabaseService | null>(null);
   const [isDbReady, setIsDbReady] = useState(false);
@@ -217,7 +145,7 @@ export default function App() {
     setCurrentQuestionIndex(0);
     setScore(0);
     setQuizComplete(false);
-    setHistory([]);
+    setAnswers({});
   }, [allQuestions]);
   
   useEffect(() => {
@@ -225,9 +153,9 @@ export default function App() {
   }, [allQuestions, initializeQuiz]);
   
   const handleAnswer = (answer: Answer) => {
-    setHistory(prev => [...prev, { questionQueue, currentQuestionIndex, score }]);
-
     const currentQuestion = questionQueue[currentQuestionIndex];
+    setAnswers(prev => ({ ...prev, [currentQuestion.id]: answer }));
+
     const newScore = score + currentQuestion.riskPoints[answer];
     setScore(newScore);
     
@@ -280,24 +208,6 @@ export default function App() {
     }
   };
 
-
-  const handleBack = () => {
-    if (history.length === 0) return;
-
-    const quizView = document.querySelector('.transition-opacity');
-    if (quizView) {
-      quizView.classList.remove('opacity-100');
-    }
-
-    setTimeout(() => {
-        const lastState = history[history.length - 1];
-        setQuestionQueue(lastState.questionQueue);
-        setCurrentQuestionIndex(lastState.currentQuestionIndex);
-        setScore(lastState.score);
-        setHistory(prev => prev.slice(0, -1));
-    }, 300);
-  };
-  
   const handleRestartQuiz = () => {
     initializeQuiz();
     setViewMode('quiz');
@@ -318,6 +228,17 @@ export default function App() {
   };
   
   const currentQuestion = questionQueue[currentQuestionIndex];
+
+  useEffect(() => {
+    if (quizComplete || !currentQuestion) return;
+    const element = document.getElementById(`question-${currentQuestion.id}`);
+    // Only scroll if it's not the very first question, to avoid a jarring jump on load
+    if (element && currentQuestionIndex > 0) {
+      setTimeout(() => {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100); // A small delay helps ensure the element is fully rendered
+    }
+  }, [currentQuestionIndex, currentQuestion, quizComplete]);
   
   const renderContent = () => {
     if (dbError) {
@@ -344,15 +265,44 @@ export default function App() {
 
     if (currentQuestion) {
       return (
-        <QuizView
-          key={currentQuestion.id}
-          question={currentQuestion}
-          questionNumber={currentQuestionIndex + 1}
-          totalQuestions={questionQueue.length}
-          onAnswer={handleAnswer}
-          onBack={handleBack}
-          canGoBack={history.length > 0}
-        />
+        <div className="space-y-6">
+          {questionQueue.slice(0, currentQuestionIndex + 1).map((q, index) => {
+            const isCurrentQuestion = index === currentQuestionIndex;
+            const givenAnswer = answers[q.id];
+
+            return (
+              <div key={q.id} id={`question-${q.id}`} className={`p-6 md:p-8 bg-white rounded-xl shadow-lg transition-all duration-500 ${isCurrentQuestion ? 'animate-fade-in' : 'opacity-70'}`}>
+                <div className="flex justify-between items-center mb-4">
+                  <p className="text-sm font-semibold text-indigo-600">Question {q.number}</p>
+                   { !isCurrentQuestion && givenAnswer &&
+                      <div className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-full shadow-sm">{givenAnswer}</div>
+                  }
+                </div>
+                <h2 className="text-2xl font-bold text-slate-800 mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {(['Yes', 'No', 'N/A'] as Answer[]).map((ans) => {
+                    const isSelected = givenAnswer === ans;
+                    return (
+                      <button
+                        key={ans}
+                        onClick={() => isCurrentQuestion && handleAnswer(ans)}
+                        disabled={!isCurrentQuestion}
+                        className={`w-full px-4 py-3 border-2 font-semibold rounded-lg transition-all duration-200
+                          ${isCurrentQuestion ? 'border-slate-300 text-slate-700 hover:bg-slate-100 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400' : 'border-transparent'}
+                          ${isSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100'}
+                          ${!isCurrentQuestion && !isSelected ? 'bg-slate-50 text-slate-400' : ''}
+                          ${!isCurrentQuestion ? 'cursor-default' : ''}
+                        `}
+                      >
+                        {ans}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       );
     }
     
