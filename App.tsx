@@ -3,6 +3,7 @@ import type { Answer, Question } from './types';
 import QuestionEditor from './QuestionEditor';
 import DatabaseService from './database';
 import { GoogleGenAI } from '@google/genai';
+import { getWorkCompCodes, WorkCompCode } from './workCompService';
 
 declare const jspdf: any;
 
@@ -116,14 +117,14 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions, busines
   return (
     <div className="flex flex-col items-center p-6 md:p-8 bg-white rounded-xl shadow-lg animate-fade-in">
       <ResultIcon score={score} />
-      <h2 className="text-3xl font-bold text-gray-800 mt-4">Assessment Complete!</h2>
-      <p className="text-gray-600 mt-2">Here is your business risk profile.</p>
+      <h2 className="text-3xl font-bold text-slate-800 mt-4">Assessment Complete!</h2>
+      <p className="text-slate-600 mt-2">Here is your business risk profile.</p>
       <div className="my-8 text-center">
         <p className={`text-6xl font-bold ${profile.color}`}>{score}</p>
-        <p className="text-gray-500">Risk Score</p>
+        <p className="text-slate-500">Risk Score</p>
         <p className={`mt-2 font-semibold ${profile.color}`}>{profile.level} Profile</p>
       </div>
-      <p className="text-center text-gray-700 max-w-md">{profile.message}</p>
+      <p className="text-center text-slate-700 max-w-md">{profile.message}</p>
       <div className="mt-8 w-full">
         <button
           onClick={handleDownloadPdf}
@@ -132,6 +133,18 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions, busines
           Download PDF Report
         </button>
       </div>
+    </div>
+  );
+};
+
+const RejectionView: React.FC<{ message: string }> = ({ message }) => {
+  return (
+    <div className="flex flex-col items-center p-6 md:p-8 bg-white rounded-xl shadow-lg animate-fade-in">
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 text-red-600" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+      </svg>
+      <h2 className="text-5xl font-extrabold text-red-600 mt-6 tracking-wider">REJECTED</h2>
+      <p className="text-slate-700 mt-4 text-center max-w-md">{message}</p>
     </div>
   );
 };
@@ -149,10 +162,16 @@ export default function App() {
   const [quizComplete, setQuizComplete] = useState(false);
   const [answers, setAnswers] = useState<Record<number, Answer | string | string[]>>({});
   const [textInputValue, setTextInputValue] = useState('');
-  const [multiSelectInputValues, setMultiSelectInputValues] = useState<string[]>([]);
+  
+  const [selectedStates, setSelectedStates] = useState<string[]>([]);
+  const [stateSearchInput, setStateSearchInput] = useState('');
+  const [stateSuggestions, setStateSuggestions] = useState<string[]>([]);
   
   const [currentWorkCompCodeInput, setCurrentWorkCompCodeInput] = useState('');
   const [workCompCodes, setWorkCompCodes] = useState<string[]>([]);
+  const [isFetchingCompCodeDesc, setIsFetchingCompCodeDesc] = useState(false);
+  const [allWorkCompCodes, setAllWorkCompCodes] = useState<WorkCompCode[]>([]);
+  const [workCompSuggestions, setWorkCompSuggestions] = useState<WorkCompCode[]>([]);
   
   const [businessNameValue, setBusinessNameValue] = useState('');
   const [yearsValue, setYearsValue] = useState('');
@@ -161,6 +180,8 @@ export default function App() {
   const [businessName, setBusinessName] = useState('');
   const [isLookingUpInfo, setIsLookingUpInfo] = useState(false);
   const [lookupResult, setLookupResult] = useState<string | null>(null);
+  const [isRejected, setIsRejected] = useState(false);
+  const [rejectionMessage, setRejectionMessage] = useState('');
 
 
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
@@ -198,6 +219,18 @@ export default function App() {
       loadQuestions();
     }
   }, [isDbReady, loadQuestions]);
+
+  useEffect(() => {
+    const loadCodes = async () => {
+        try {
+            const codes = await getWorkCompCodes();
+            setAllWorkCompCodes(codes);
+        } catch (error) {
+            console.error("Failed to load work comp codes:", error);
+        }
+    };
+    loadCodes();
+  }, []);
 
   const initializeQuiz = useCallback(() => {
     if (allQuestions.length === 0) return;
@@ -332,10 +365,52 @@ export default function App() {
 
   const currentQuestion = questionQueue[currentQuestionIndex];
 
-  const handleAddWorkCompCode = () => {
-    if (currentWorkCompCodeInput.trim() && !workCompCodes.includes(currentWorkCompCodeInput.trim())) {
-      setWorkCompCodes(prev => [...prev, currentWorkCompCodeInput.trim()]);
-      setCurrentWorkCompCodeInput('');
+  const handleAddWorkCompCode = async () => {
+    const code = currentWorkCompCodeInput.trim();
+    if (!code) return;
+
+    setIsFetchingCompCodeDesc(true);
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const prompt = `Act as a data retrieval specialist. Go to the URL https://www.insurancexdate.com/class/${code}. Find the description for this workers' compensation class code. If there are multiple descriptions for this code (e.g., for different states), return the first one you find. Return only the description text. If you cannot find a description or the page doesn't exist, return the string 'Description not found.'`;
+        
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+        });
+
+        const description = response.text.trim();
+        const lowerCaseDescription = description.toLowerCase();
+
+        if (lowerCaseDescription.includes('explosive') || lowerCaseDescription.includes('ammunition')) {
+            setIsRejected(true);
+            setRejectionMessage("Application rejected due to high-risk operations involving explosives or ammunition.");
+            setIsFetchingCompCodeDesc(false);
+            return;
+        }
+
+        let newCodeEntry = code;
+
+        if (description && description.toLowerCase() !== 'description not found.') {
+            const truncatedDesc = description.length > 100 ? description.substring(0, 100) + '...' : description;
+            newCodeEntry = `${code} - ${truncatedDesc}`;
+        }
+
+        if (!workCompCodes.includes(newCodeEntry)) {
+            setWorkCompCodes(prev => [...prev, newCodeEntry]);
+        }
+        setCurrentWorkCompCodeInput('');
+        setWorkCompSuggestions([]);
+    } catch (error) {
+        console.error("Error fetching work comp code description:", error);
+        // Fallback: just add the code if the API fails
+        if (!workCompCodes.includes(code)) {
+            setWorkCompCodes(prev => [...prev, code]);
+        }
+        setCurrentWorkCompCodeInput('');
+        setWorkCompSuggestions([]);
+    } finally {
+        setIsFetchingCompCodeDesc(false);
     }
   };
 
@@ -363,6 +438,10 @@ export default function App() {
 
         const text = response.text;
         setLookupResult(text);
+        
+        if (text && !text.toLowerCase().includes('not find') && !text.toLowerCase().includes('error')) {
+            setBusinessNameValue(prev => prev.trim().toUpperCase());
+        }
 
     } catch (error) {
         console.error("Error looking up business info:", error);
@@ -374,7 +453,8 @@ export default function App() {
   
   useEffect(() => {
     setTextInputValue(''); // Clear text input when question changes
-    setMultiSelectInputValues([]); // Clear multi-select dropdown value when question changes
+    setSelectedStates([]);
+    setStateSearchInput('');
     setCurrentWorkCompCodeInput('');
     setWorkCompCodes([]);
     setBusinessNameValue('');
@@ -393,6 +473,52 @@ export default function App() {
       }, 100);
     }
   }, [currentQuestionIndex, currentQuestion, quizComplete]);
+  
+  const handleWorkCompInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setCurrentWorkCompCodeInput(value);
+
+    if (value.length > 1 && allWorkCompCodes.length > 0) {
+        const filtered = allWorkCompCodes.filter(item =>
+            item.code.toLowerCase().startsWith(value.toLowerCase()) ||
+            item.description.toLowerCase().includes(value.toLowerCase())
+        ).slice(0, 5); // Show top 5 matches
+        setWorkCompSuggestions(filtered);
+    } else {
+        setWorkCompSuggestions([]);
+    }
+  };
+
+  const handleSuggestionClick = (code: WorkCompCode) => {
+    setCurrentWorkCompCodeInput(code.code);
+    setWorkCompSuggestions([]);
+  };
+
+  const handleStateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setStateSearchInput(value);
+    if (value) {
+      const filtered = US_STATES.filter(state =>
+        state.toLowerCase().includes(value.toLowerCase()) && !selectedStates.includes(state)
+      );
+      setStateSuggestions(filtered);
+    } else {
+      setStateSuggestions([]);
+    }
+  };
+
+  const handleAddState = (state: string) => {
+    if (!selectedStates.includes(state)) {
+      setSelectedStates(prev => [...prev, state].sort());
+    }
+    setStateSearchInput('');
+    setStateSuggestions([]);
+  };
+
+  const handleRemoveState = (stateToRemove: string) => {
+    setSelectedStates(prev => prev.filter(state => state !== stateToRemove));
+  };
+
 
   const renderContent = () => {
     if (dbError) {
@@ -400,6 +526,10 @@ export default function App() {
     }
     if (!isDbReady) {
         return <div className="text-center p-8 bg-white rounded-lg shadow-lg">Initializing Database...</div>;
+    }
+
+    if (isRejected) {
+      return <RejectionView message={rejectionMessage} />;
     }
 
     if (viewMode === 'editor') {
@@ -440,11 +570,11 @@ export default function App() {
               const isBusinessInfoType = q.controlType === 'business_info';
 
               return (
-                <div key={q.id} id={`question-${q.id}`} className="p-6 md:p-8 bg-white rounded-xl shadow-xl border border-gray-200/50 transition-all duration-500 animate-fade-in">
+                <div key={q.id} id={`question-${q.id}`} className="p-6 md:p-8 bg-white rounded-xl shadow-xl border border-slate-200/50 transition-all duration-500 animate-fade-in">
                   <div className="flex justify-between items-center mb-6">
                     <p className="text-sm font-bold bg-indigo-600 text-white px-4 py-1 rounded-full shadow-md">Question {index + 1}</p>
                   </div>
-                  <h2 className="text-2xl font-bold text-gray-800 leading-relaxed mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
+                  <h2 className="text-2xl font-bold text-slate-800 leading-relaxed mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
                   
                   {isButtonType && (
                     <div className={`grid grid-cols-1 ${q.controlType === 'yes_no' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-4`}>
@@ -452,7 +582,7 @@ export default function App() {
                         <button
                           key={ans}
                           onClick={() => handleAnswer(ans)}
-                          className="w-full px-4 py-3 border-2 font-semibold rounded-lg transition-all duration-200 border-gray-300 text-gray-700 hover:bg-gray-100 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                          className="w-full px-4 py-3 border-2 font-semibold rounded-lg transition-all duration-200 border-slate-300 text-slate-700 hover:bg-slate-100 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
                         >
                           {ans}
                         </button>
@@ -464,7 +594,7 @@ export default function App() {
                     <div className="mt-4 flex flex-col items-center">
                       <input
                         type="number"
-                        className="w-full max-w-xs p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                        className="w-full max-w-xs p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
                         value={textInputValue}
                         onChange={(e) => {
                            const numericValue = e.target.value.replace(/[^0-9]/g, '');
@@ -476,7 +606,7 @@ export default function App() {
                       <button
                         onClick={() => handleAnswer(textInputValue)}
                         disabled={!textInputValue.trim()}
-                        className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
+                        className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
                       >
                         Continue
                       </button>
@@ -484,14 +614,14 @@ export default function App() {
                   )}
 
                   {isBusinessInfoType && (
-                    <div className="mt-4 flex flex-col items-center gap-4">
-                        <div className="w-full max-w-xs">
-                            <label htmlFor="business-name-input" className="block text-sm font-medium text-gray-700 mb-1">Name of business</label>
+                    <div className="mt-4 space-y-6 flex flex-col items-center">
+                        <div className="w-full max-w-lg">
+                            <label htmlFor="business-name-input" className="block text-sm font-medium text-slate-700 mb-1">Name of business</label>
                             <div className="flex w-full gap-2">
                                 <input
                                     id="business-name-input"
                                     type="text"
-                                    className="flex-grow p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                    className="flex-grow p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
                                     value={businessNameValue}
                                     onChange={(e) => setBusinessNameValue(e.target.value)}
                                     placeholder="e.g., Acme Corp"
@@ -500,7 +630,7 @@ export default function App() {
                                 <button
                                   onClick={handleLookupBusinessInfo}
                                   disabled={!businessNameValue.trim() || isLookingUpInfo}
-                                  className="px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg shadow-sm hover:bg-slate-700 disabled:bg-gray-400 transition-all"
+                                  className="px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg shadow-sm hover:bg-slate-700 disabled:bg-slate-400 transition-all"
                                   aria-label="Look up business information"
                                 >
                                   {isLookingUpInfo ? '...' : 'Look Up'}
@@ -508,195 +638,248 @@ export default function App() {
                             </div>
                         </div>
                         
-                        {isLookingUpInfo && (
-                            <div className="w-full max-w-xs p-3 mt-2 bg-gray-100 border border-gray-200 text-gray-600 rounded-lg text-sm flex items-center gap-2">
-                                <svg className="animate-spin h-4 w-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span>Searching Florida public records...</span>
+                        {(isLookingUpInfo || lookupResult) && (
+                            <div className="w-full max-w-lg">
+                                {isLookingUpInfo && (
+                                    <div className="p-3 bg-slate-100 border border-slate-200 text-slate-600 rounded-lg text-sm flex items-center gap-2">
+                                        <svg className="animate-spin h-4 w-4 text-slate-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        <span>Searching Florida public records...</span>
+                                    </div>
+                                )}
+                                {lookupResult && !isLookingUpInfo && (
+                                  <div className="p-3 bg-blue-100 border border-blue-200 text-blue-800 rounded-lg text-sm animate-fade-in-fast">
+                                      {lookupResult}
+                                  </div>
+                                )}
                             </div>
                         )}
 
-                        {lookupResult && !isLookingUpInfo && (
-                          <div className="w-full max-w-xs p-3 mt-2 bg-blue-100 border border-blue-200 text-blue-800 rounded-lg text-sm animate-fade-in-fast">
-                              {lookupResult}
-                          </div>
-                        )}
-
-                        <div className="w-full max-w-xs">
-                            <label htmlFor="years-input" className="block text-sm font-medium text-gray-700 mb-1">Number of years in business</label>
-                            <input
-                                id="years-input"
-                                type="number"
-                                className="w-full p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                                value={yearsValue}
-                                onChange={(e) => {
-                                    const numericValue = e.target.value.replace(/[^0-9]/g, '');
-                                    setYearsValue(numericValue);
-                                }}
-                                placeholder="e.g., 5"
-                                aria-label="Number of years in business"
-                            />
+                        <div className="w-full max-w-lg grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label htmlFor="years-input" className="block text-sm font-medium text-slate-700 mb-1">Years in business</label>
+                                <input
+                                    id="years-input"
+                                    type="number"
+                                    className="w-full p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                    value={yearsValue}
+                                    onChange={(e) => {
+                                        const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                                        setYearsValue(numericValue);
+                                    }}
+                                    placeholder="e.g., 5"
+                                    aria-label="Years in business"
+                                />
+                            </div>
+                             <div>
+                                <label htmlFor="employees-input" className="block text-sm font-medium text-slate-700 mb-1"># of Employees</label>
+                                <input
+                                    id="employees-input"
+                                    type="number"
+                                    className="w-full p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                    value={employeesValue}
+                                    onChange={(e) => {
+                                        const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                                        setEmployeesValue(numericValue);
+                                    }}
+                                    placeholder="e.g., 20"
+                                    aria-label="Number of employees"
+                                />
+                            </div>
+                             <div>
+                                <label htmlFor="revenue-input" className="block text-sm font-medium text-slate-700 mb-1">Revenue ($M)</label>
+                                <input
+                                    id="revenue-input"
+                                    type="number"
+                                    className="w-full p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                    value={revenueValue}
+                                    onChange={(e) => {
+                                        const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                                        setRevenueValue(numericValue);
+                                    }}
+                                    placeholder="e.g., 5"
+                                    aria-label="Estimated Annual Revenue in Millions"
+                                />
+                            </div>
                         </div>
-                        <div className="w-full max-w-xs">
-                            <label htmlFor="employees-input" className="block text-sm font-medium text-gray-700 mb-1">Number of employees</label>
-                            <input
-                                id="employees-input"
-                                type="number"
-                                className="w-full p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                                value={employeesValue}
-                                onChange={(e) => {
-                                    const numericValue = e.target.value.replace(/[^0-9]/g, '');
-                                    setEmployeesValue(numericValue);
+                        <div className="w-full max-w-lg">
+                            <button
+                                onClick={() => {
+                                    setBusinessName(businessNameValue);
+                                    const formattedAnswer = `Business Name: ${businessNameValue}\nYears: ${yearsValue} | Employees: ${employeesValue} | Revenue: $${revenueValue}M`;
+                                    handleAnswer(formattedAnswer);
                                 }}
-                                placeholder="e.g., 20"
-                                aria-label="Number of employees"
-                            />
+                                disabled={!businessNameValue.trim() || !yearsValue.trim() || !employeesValue.trim() || !revenueValue.trim()}
+                                className="w-full px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
+                            >
+                                Continue
+                            </button>
                         </div>
-                         <div className="w-full max-w-xs">
-                            <label htmlFor="revenue-input" className="block text-sm font-medium text-gray-700 mb-1">Estimated Annual Revenue ($M)</label>
-                            <input
-                                id="revenue-input"
-                                type="number"
-                                className="w-full p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                                value={revenueValue}
-                                onChange={(e) => {
-                                    const numericValue = e.target.value.replace(/[^0-9]/g, '');
-                                    setRevenueValue(numericValue);
-                                }}
-                                placeholder="e.g., 5"
-                                aria-label="Estimated Annual Revenue in Millions"
-                            />
-                        </div>
-                        <button
-                            onClick={() => {
-                                setBusinessName(businessNameValue);
-                                handleAnswer(`Name: ${businessNameValue}, Years: ${yearsValue}, Employees: ${employeesValue}, Revenue: $${revenueValue}M`);
-                            }}
-                            disabled={!businessNameValue.trim() || !yearsValue.trim() || !employeesValue.trim() || !revenueValue.trim()}
-                            className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
-                        >
-                            Continue
-                        </button>
                     </div>
                   )}
 
                   {isMultiStateSelectType && (
-                      <div className="mt-4 flex flex-col items-center">
-                          <select
-                              multiple
-                              className="w-full max-w-xs p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition h-48"
-                              value={multiSelectInputValues}
-                              onChange={(e) => setMultiSelectInputValues(Array.from(e.target.selectedOptions, option => option.value))}
-                              aria-label={`Answer for: ${q.text}`}
-                          >
-                              {US_STATES.map(state => (
-                                  <option key={state} value={state}>{state}</option>
+                      <div className="mt-4 flex flex-col items-center gap-4">
+                        <div className="relative w-full max-w-xs">
+                           <input
+                            type="text"
+                            className="w-full p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                            value={stateSearchInput}
+                            onChange={handleStateInputChange}
+                            onBlur={() => setTimeout(() => setStateSuggestions([]), 150)}
+                            placeholder="Type to find a state..."
+                            aria-label="Search for a state to add"
+                          />
+                          {stateSuggestions.length > 0 && (
+                            <ul className="absolute z-10 w-full bg-white border border-slate-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+                              {stateSuggestions.map(state => (
+                                <li
+                                  key={state}
+                                  onClick={() => handleAddState(state)}
+                                  className="px-4 py-2 hover:bg-slate-100 cursor-pointer"
+                                >
+                                  {state}
+                                </li>
                               ))}
-                          </select>
-                          <button
-                              onClick={() => handleAnswer(multiSelectInputValues)}
-                              disabled={multiSelectInputValues.length === 0}
-                              className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
-                          >
-                              Continue
-                          </button>
+                            </ul>
+                          )}
+                        </div>
+                          
+                        {selectedStates.length > 0 && (
+                            <div className="w-full max-w-xs p-3 border-2 border-slate-200 rounded-lg bg-slate-50 min-h-[6rem] flex flex-wrap gap-2">
+                                {selectedStates.map(state => (
+                                    <span key={state} className="bg-indigo-600 text-white text-xs font-semibold px-3 py-1 rounded-full flex items-center gap-2 shadow-sm">
+                                        {state}
+                                        <button onClick={() => handleRemoveState(state)} className="text-indigo-200 hover:text-white font-bold">
+                                            &times;
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        
+                        <button
+                          onClick={() => handleAnswer(selectedStates)}
+                          disabled={selectedStates.length === 0}
+                          className="w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
+                        >
+                          Continue
+                        </button>
                       </div>
                   )}
                   
                   {isWorkCompCodeType && (
                     <div className="mt-4 flex flex-col items-center gap-4">
-                        <div className="flex w-full max-w-xs gap-2">
-                           <input
-                            type="text"
-                            className="flex-grow p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                            value={currentWorkCompCodeInput}
-                            onChange={(e) => setCurrentWorkCompCodeInput(e.target.value)}
-                            placeholder="Enter code..."
-                            aria-label="Enter workers' compensation code"
-                          />
-                          <button
-                            onClick={handleAddWorkCompCode}
-                            disabled={!currentWorkCompCodeInput.trim()}
-                            className="px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg shadow-sm hover:bg-gray-700 disabled:bg-gray-300 transition-all"
-                          >
-                            Add
-                          </button>
-                        </div>
-                        
-                        {workCompCodes.length > 0 && (
-                          <div className="w-full max-w-xs p-3 border-2 border-gray-200 rounded-lg bg-gray-50 flex flex-wrap gap-2">
-                            {workCompCodes.map(code => (
-                              <div key={code} className="flex items-center gap-2 bg-indigo-100 text-indigo-800 text-sm font-semibold px-3 py-1 rounded-full">
-                                <span>{code}</span>
-                                <button
-                                  onClick={() => handleRemoveWorkCompCode(code)}
-                                  className="text-indigo-500 hover:text-indigo-700"
-                                  aria-label={`Remove code ${code}`}
-                                >
-                                  &times;
-                                </button>
-                              </div>
-                            ))}
+                        <div className="relative w-full max-w-xs">
+                          <div className="flex gap-2">
+                             <input
+                              type="text"
+                              className="flex-grow p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                              value={currentWorkCompCodeInput}
+                              onChange={handleWorkCompInputChange}
+                              onBlur={() => setTimeout(() => setWorkCompSuggestions([]), 150)}
+                              placeholder="Enter code or keyword..."
+                              aria-label="Enter workers' compensation code"
+                            />
+                            <button
+                              onClick={handleAddWorkCompCode}
+                              disabled={!currentWorkCompCodeInput.trim() || isFetchingCompCodeDesc}
+                              className="flex justify-center items-center gap-2 px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg shadow-sm hover:bg-slate-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all w-24"
+                            >
+                              {isFetchingCompCodeDesc ? (
+                                <>
+                                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Adding...
+                                </>
+                              ) : (
+                                'Add'
+                              )}
+                            </button>
                           </div>
+                           {workCompSuggestions.length > 0 && (
+                            <ul className="absolute z-10 w-full bg-white border border-slate-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+                                {workCompSuggestions.map(item => (
+                                    <li
+                                        key={item.code}
+                                        onClick={() => handleSuggestionClick(item)}
+                                        className="px-4 py-2 hover:bg-slate-100 cursor-pointer"
+                                    >
+                                        <span className="font-bold">{item.code}</span> - <span className="text-sm text-slate-600">{item.description}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        {workCompCodes.length > 0 && (
+                            <div className="w-full max-w-xs p-3 border-2 border-slate-200 rounded-lg bg-slate-50 min-h-[6rem] flex flex-wrap gap-2">
+                                {workCompCodes.map(code => (
+                                    <span key={code} className="bg-slate-200 text-slate-700 text-sm font-medium px-3 py-1 rounded-full flex items-center gap-2">
+                                        {code}
+                                        <button onClick={() => handleRemoveWorkCompCode(code)} className="text-slate-500 hover:text-slate-800">
+                                            &#x2715;
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
                         )}
-                        
+
                         <button
-                          onClick={() => handleAnswer(workCompCodes)}
-                          disabled={workCompCodes.length === 0}
-                          className="w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
+                            onClick={() => handleAnswer(workCompCodes)}
+                            disabled={workCompCodes.length === 0}
+                            className="w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
                         >
-                          Continue
+                            Continue
                         </button>
                     </div>
                   )}
-
                 </div>
               );
             }
             
-            const answerDisplay = Array.isArray(givenAnswer) ? givenAnswer.join(', ') : givenAnswer;
-            
+            // Render previously answered questions
             return (
-              <div key={q.id} className="p-4 bg-white rounded-xl shadow-md border-l-4 border-green-500 transition-all animate-fade-in-fast">
+              <div key={q.id} id={`question-${q.id}`} className="p-4 bg-white rounded-lg shadow-md border-l-4 border-green-500 transition-all animate-fade-in-fast">
                 <div className="flex justify-between items-center">
-                    <p className="font-bold text-gray-800">{q.text}</p>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                  <h3 className="text-lg font-semibold text-slate-700">{q.text}</h3>
+                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-500" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
                 </div>
-                <p className="mt-2 text-gray-600 font-medium">{answerDisplay}</p>
+                <div className="mt-2 text-slate-600 font-medium whitespace-pre-wrap">
+                  <span className="font-normal text-slate-500">Answer: </span>
+                  {Array.isArray(givenAnswer) ? givenAnswer.join(', ') : String(givenAnswer)}
+                </div>
               </div>
             );
           })}
         </div>
       );
     }
-    return <div className="text-center p-8 bg-white rounded-lg shadow-lg">Loading Questions...</div>;
+
+    return <div>Loading questions...</div>;
   };
-  
+
   return (
-    <div className="p-4 md:p-6 min-h-screen">
-      <div className="max-w-3xl mx-auto">
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-extrabold text-gray-800 tracking-tight">ABC</h1>
-          {!quizComplete && <p className="mt-2 text-lg text-gray-600">Client Risk Assessment</p>}
+    <div className="w-full max-w-2xl mx-auto p-4 sm:p-6 md:p-8">
+        <header className="text-center mb-10">
+            <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-500">ABC</h1>
+            <p className="mt-2 text-lg text-slate-600">PEO Client Risk Assessment</p>
+            <button
+                onClick={() => setViewMode(prev => prev === 'quiz' ? 'editor' : 'quiz')}
+                className="mt-4 px-4 py-2 text-sm bg-slate-200 text-slate-800 font-semibold rounded-lg hover:bg-slate-300 transition-all absolute top-4 right-4"
+            >
+                {viewMode === 'quiz' ? 'Edit Questions' : 'Take Quiz'}
+            </button>
         </header>
         <main>
-          {renderContent()}
+            {renderContent()}
         </main>
-        {!quizComplete && (
-            <footer className="text-center mt-8">
-                <button 
-                    onClick={() => setViewMode(prev => prev === 'quiz' ? 'editor' : 'quiz')}
-                    className="text-sm text-gray-500 hover:text-indigo-600 font-medium transition"
-                >
-                    {viewMode === 'quiz' ? 'Edit Questions' : 'Back to Quiz'}
-                </button>
-            </footer>
-        )}
-      </div>
     </div>
   );
 }
