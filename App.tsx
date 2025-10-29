@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Answer, Question } from './types';
 import QuestionEditor from './QuestionEditor';
 import DatabaseService from './database';
@@ -114,18 +114,18 @@ const ScoreView: React.FC<ScoreViewProps> = ({ score, answeredQuestions }) => {
   return (
     <div className="flex flex-col items-center p-6 md:p-8 bg-white rounded-xl shadow-lg animate-fade-in">
       <ResultIcon score={score} />
-      <h2 className="text-3xl font-bold text-slate-800 mt-4">Assessment Complete!</h2>
-      <p className="text-slate-600 mt-2">Here is your business risk profile.</p>
+      <h2 className="text-3xl font-bold text-gray-800 mt-4">Assessment Complete!</h2>
+      <p className="text-gray-600 mt-2">Here is your business risk profile.</p>
       <div className="my-8 text-center">
         <p className={`text-6xl font-bold ${profile.color}`}>{score}</p>
-        <p className="text-slate-500">Risk Score</p>
+        <p className="text-gray-500">Risk Score</p>
         <p className={`mt-2 font-semibold ${profile.color}`}>{profile.level} Profile</p>
       </div>
-      <p className="text-center text-slate-700 max-w-md">{profile.message}</p>
+      <p className="text-center text-gray-700 max-w-md">{profile.message}</p>
       <div className="mt-8 w-full">
         <button
           onClick={handleDownloadPdf}
-          className="w-full px-8 py-3 bg-slate-600 text-white font-semibold rounded-lg shadow-md hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-opacity-75 transition-all duration-300"
+          className="w-full px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-opacity-75 transition-all duration-300"
         >
           Download PDF Report
         </button>
@@ -148,8 +148,10 @@ export default function App() {
   const [answers, setAnswers] = useState<Record<number, Answer | string | string[]>>({});
   const [textInputValue, setTextInputValue] = useState('');
   const [multiSelectInputValues, setMultiSelectInputValues] = useState<string[]>([]);
-  const [workCompCodes, setWorkCompCodes] = useState<string[]>([]);
+  
   const [currentWorkCompCodeInput, setCurrentWorkCompCodeInput] = useState('');
+  const [workCompCodes, setWorkCompCodes] = useState<string[]>([]);
+
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [dbService, setDbService] = useState<DatabaseService | null>(null);
   const [isDbReady, setIsDbReady] = useState(false);
@@ -318,12 +320,23 @@ export default function App() {
   };
 
   const currentQuestion = questionQueue[currentQuestionIndex];
+
+  const handleAddWorkCompCode = () => {
+    if (currentWorkCompCodeInput.trim() && !workCompCodes.includes(currentWorkCompCodeInput.trim())) {
+      setWorkCompCodes(prev => [...prev, currentWorkCompCodeInput.trim()]);
+      setCurrentWorkCompCodeInput('');
+    }
+  };
+
+  const handleRemoveWorkCompCode = (codeToRemove: string) => {
+    setWorkCompCodes(prev => prev.filter(code => code !== codeToRemove));
+  };
   
   useEffect(() => {
     setTextInputValue(''); // Clear text input when question changes
     setMultiSelectInputValues([]); // Clear multi-select dropdown value when question changes
-    setWorkCompCodes([]);
     setCurrentWorkCompCodeInput('');
+    setWorkCompCodes([]);
   }, [currentQuestionIndex]);
 
   useEffect(() => {
@@ -376,15 +389,16 @@ export default function App() {
             if (isCurrentQuestion) {
               const isButtonType = !q.controlType || q.controlType === 'buttons' || q.controlType === 'yes_no';
               const isTextType = q.controlType === 'text';
+              const isNumericType = q.controlType === 'numeric';
               const isMultiStateSelectType = q.controlType === 'multi_state_select';
               const isWorkCompCodeType = q.controlType === 'work_comp_code';
 
               return (
-                <div key={q.id} id={`question-${q.id}`} className="p-6 md:p-8 bg-white rounded-xl shadow-md transition-all duration-500 animate-fade-in">
+                <div key={q.id} id={`question-${q.id}`} className="p-6 md:p-8 bg-white rounded-xl shadow-lg transition-all duration-500 animate-fade-in">
                   <div className="flex justify-between items-center mb-4">
                     <p className="text-sm font-semibold text-indigo-600">Question {index + 1}</p>
                   </div>
-                  <h2 className="text-2xl font-bold text-slate-800 mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
+                  <h2 className="text-2xl font-bold text-gray-800 mb-8 min-h-[4rem] flex items-center">{q.text}</h2>
                   
                   {isButtonType && (
                     <div className={`grid grid-cols-1 ${q.controlType === 'yes_no' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-4`}>
@@ -392,7 +406,7 @@ export default function App() {
                         <button
                           key={ans}
                           onClick={() => handleAnswer(ans)}
-                          className="w-full px-4 py-3 border-2 font-semibold rounded-lg transition-all duration-200 border-slate-300 text-slate-700 hover:bg-slate-100 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-100"
+                          className="w-full px-4 py-3 border-2 font-semibold rounded-lg transition-all duration-200 border-gray-300 text-gray-700 hover:bg-gray-100 hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
                         >
                           {ans}
                         </button>
@@ -400,11 +414,34 @@ export default function App() {
                     </div>
                   )}
 
+                  {isNumericType && (
+                    <div className="mt-4 flex flex-col items-center">
+                      <input
+                        type="number"
+                        className="w-full max-w-xs p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                        value={textInputValue}
+                        onChange={(e) => {
+                           const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                           setTextInputValue(numericValue);
+                        }}
+                        placeholder="Enter a number..."
+                        aria-label={`Answer for: ${q.text}`}
+                      />
+                      <button
+                        onClick={() => handleAnswer(textInputValue)}
+                        disabled={!textInputValue.trim()}
+                        className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
+                      >
+                        Continue
+                      </button>
+                    </div>
+                  )}
+                  
                   {isTextType && (
                     <div className="mt-4 flex flex-col items-center">
                       <input
                         type="text"
-                        className="w-full max-w-xs p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                        className="w-full max-w-xs p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
                         value={textInputValue}
                         onChange={(e) => setTextInputValue(e.target.value)}
                         placeholder="Enter your answer..."
@@ -413,7 +450,7 @@ export default function App() {
                       <button
                         onClick={() => handleAnswer(textInputValue)}
                         disabled={!textInputValue.trim()}
-                        className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
+                        className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
                       >
                         Continue
                       </button>
@@ -424,7 +461,7 @@ export default function App() {
                     <div className="mt-4 flex flex-col items-center">
                         <select
                             multiple
-                            className="w-full max-w-xs p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition h-48"
+                            className="w-full max-w-xs p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition h-48"
                             value={multiSelectInputValues}
                             onChange={(e) => {
                                 const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
@@ -434,11 +471,11 @@ export default function App() {
                         >
                             {US_STATES.map(state => <option key={state} value={state}>{state}</option>)}
                         </select>
-                         <p className="text-sm text-slate-500 mt-2">Hold Ctrl (or Cmd on Mac) to select multiple states.</p>
+                         <p className="text-sm text-gray-500 mt-2">Hold Ctrl (or Cmd on Mac) to select multiple states.</p>
                         <button
                             onClick={() => handleAnswer(multiSelectInputValues)}
                             disabled={multiSelectInputValues.length === 0}
-                            className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
+                            className="mt-4 w-full max-w-xs px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
                         >
                             Continue
                         </button>
@@ -446,73 +483,65 @@ export default function App() {
                   )}
 
                   {isWorkCompCodeType && (
-                    <div className="mt-4 flex flex-col items-center w-full max-w-md mx-auto">
-                      <div className="flex w-full gap-2">
-                        <input
-                          type="text"
-                          className="flex-grow p-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                          value={currentWorkCompCodeInput}
-                          onChange={(e) => setCurrentWorkCompCodeInput(e.target.value)}
-                          placeholder="Enter code (e.g., 8810)"
-                          aria-label="Enter workers compensation code"
-                        />
-                        <button
-                          onClick={() => {
-                            if (currentWorkCompCodeInput.trim()) {
-                              setWorkCompCodes([...workCompCodes, currentWorkCompCodeInput.trim()]);
-                              setCurrentWorkCompCodeInput('');
-                            }
-                          }}
-                          disabled={!currentWorkCompCodeInput.trim()}
-                          className="px-6 py-3 bg-slate-600 text-white font-semibold rounded-lg shadow-md hover:bg-slate-700 disabled:bg-slate-400 transition-all"
-                        >
-                          Add
-                        </button>
-                      </div>
-                      
-                      {workCompCodes.length > 0 && (
-                        <div className="w-full mt-4 p-3 border border-slate-200 rounded-lg bg-slate-50">
-                          <h3 className="text-sm font-semibold text-slate-600 mb-2">Added Codes:</h3>
-                          <ul className="flex flex-wrap gap-2">
-                            {workCompCodes.map((code, index) => (
-                              <li key={index} className="flex items-center gap-2 bg-indigo-100 text-indigo-800 text-sm font-medium px-3 py-1 rounded-full border border-indigo-200">
-                                <span>{code}</span>
-                                <button
-                                  onClick={() => {
-                                    setWorkCompCodes(workCompCodes.filter((_, i) => i !== index));
-                                  }}
-                                  className="text-indigo-500 hover:text-indigo-700 focus:outline-none"
-                                  aria-label={`Remove code ${code}`}
-                                >
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                  </svg>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
+                    <div className="mt-4 flex flex-col items-center gap-4">
+                        <div className="flex w-full max-w-md gap-2">
+                            <input
+                                type="text"
+                                className="flex-grow p-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                                value={currentWorkCompCodeInput}
+                                onChange={(e) => setCurrentWorkCompCodeInput(e.target.value)}
+                                placeholder="Enter a code..."
+                                aria-label="Enter a workers' compensation code"
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleAddWorkCompCode(); }}
+                            />
+                            <button
+                                onClick={handleAddWorkCompCode}
+                                disabled={!currentWorkCompCodeInput.trim()}
+                                className="px-6 py-3 bg-indigo-500 text-white font-semibold rounded-lg shadow-sm hover:bg-indigo-600 disabled:bg-gray-400 transition-all"
+                            >
+                                Add
+                            </button>
                         </div>
-                      )}
 
-                      <button
-                        onClick={() => handleAnswer(workCompCodes)}
-                        disabled={workCompCodes.length === 0}
-                        className="mt-6 w-full px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all duration-300"
-                      >
-                        Continue
-                      </button>
+                        {workCompCodes.length > 0 && (
+                            <div className="w-full max-w-md p-3 border-2 border-gray-200 rounded-lg bg-gray-50">
+                                <ul className="flex flex-wrap gap-2">
+                                    {workCompCodes.map((code, index) => (
+                                        <li key={`${code}-${index}`} className="flex items-center gap-2 bg-indigo-100 text-indigo-800 text-sm font-medium px-3 py-1 rounded-full">
+                                            <span>{code}</span>
+                                            <button
+                                                onClick={() => handleRemoveWorkCompCode(code)}
+                                                className="text-indigo-600 hover:text-indigo-800 font-bold"
+                                                aria-label={`Remove code ${code}`}
+                                            >
+                                                &times;
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        <button
+                            onClick={() => handleAnswer(workCompCodes)}
+                            disabled={workCompCodes.length === 0}
+                            className="mt-2 w-full max-w-md px-8 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-300"
+                        >
+                            Continue
+                        </button>
                     </div>
                   )}
+
                 </div>
               );
-            } else { // Past question
-              const answerDisplay = Array.isArray(givenAnswer) ? (givenAnswer as string[]).join(', ') : String(givenAnswer);
+            } else {
+              // --- Render previously answered questions ---
+              const answerDisplay = Array.isArray(givenAnswer) ? givenAnswer.join(', ') : String(givenAnswer);
               return (
-                <div key={q.id} id={`question-${q.id}`} className="p-4 border-b border-slate-200 animate-fade-in">
-                  <p className="text-md font-semibold text-slate-600">{q.text}</p>
-                  <div className="mt-2 p-3 bg-white rounded-lg inline-block border border-slate-200">
-                    <p className="text-slate-800 font-medium whitespace-pre-wrap">{answerDisplay}</p>
-                  </div>
+                <div key={q.id} className="p-4 bg-gray-200 rounded-lg transition-all duration-500 animate-fade-in-fast">
+                   <p className="text-sm font-semibold text-gray-500">Question {index + 1}</p>
+                   <p className="font-semibold text-gray-700 mt-1">{q.text}</p>
+                   <p className="text-indigo-700 font-medium mt-2">{answerDisplay}</p>
                 </div>
               );
             }
@@ -520,47 +549,32 @@ export default function App() {
         </div>
       );
     }
-    
-    return <div className="text-center p-8 bg-white rounded-lg shadow-lg">Loading Assessment...</div>;
+    return <div className="text-center p-8 bg-white rounded-lg shadow-lg">Loading Questions...</div>;
   };
-
+  
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col items-center justify-center p-4">
-      <style>{`
-        .animate-fade-in {
-          animation: fadeIn 0.5s ease-in-out;
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-      <header className="w-full max-w-4xl text-center mb-8">
-        <div className="flex justify-center items-center relative">
-          <h1 className="text-4xl md:text-5xl font-extrabold text-slate-800">PEO Client Risk Assessment</h1>
-          {viewMode === 'quiz' && (
-            <button 
-              onClick={() => setViewMode('editor')} 
-              className="absolute right-0 top-1/2 -translate-y-1/2 text-indigo-600 hover:text-indigo-800 transition-colors"
-              title="Edit Questions"
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-start p-4 pt-8 md:pt-12 transition-colors duration-500">
+      <div className="w-full max-w-3xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+                <svg className="w-10 h-10 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.286Zm0 13.036h.008v.008h-.008v-.008Z" />
+                </svg>
+                <h1 className="text-3xl font-bold text-gray-800 tracking-tight">PEO Client Risk Assessment</h1>
+            </div>
+            <button
+                onClick={() => setViewMode(prev => prev === 'quiz' ? 'editor' : 'quiz')}
+                className="p-2 rounded-full hover:bg-gray-200 transition-colors"
+                aria-label={viewMode === 'quiz' ? 'Open Question Editor' : 'Return to Quiz'}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
-                <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-              </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
+                </svg>
             </button>
-          )}
         </div>
-        {viewMode === 'quiz' && (
-          <p className="mt-2 text-lg text-slate-600">Answer a series of questions to help us evaluate your business's risk profile.</p>
-        )}
-      </header>
-      <main className="w-full max-w-2xl lg:max-w-4xl">
         {renderContent()}
-      </main>
-      <footer className="text-center mt-8 text-slate-500 text-sm">
-        <p>This assessment is for informational purposes only and does not constitute a formal risk analysis or insurance quote.</p>
-      </footer>
+      </div>
     </div>
   );
 }

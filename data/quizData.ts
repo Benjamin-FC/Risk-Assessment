@@ -3,8 +3,8 @@ import type { Question } from '../types';
 export const ALL_QUESTIONS: Question[] = [
   // --- INITIAL QUESTIONS ---
   // These are presented to the user first to determine the quiz path.
-  { id: 7, number: '1', isInitial: true, text: 'Number of years in business', controlType: 'text', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
-  { id: 8, number: '2', isInitial: true, text: 'Number of employees', controlType: 'text', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
+  { id: 7, number: '1', isInitial: true, text: 'Number of years in business', controlType: 'numeric', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
+  { id: 8, number: '2', isInitial: true, text: 'Number of employees', controlType: 'numeric', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
   { id: 9, number: '3', isInitial: true, text: 'What states do you operate in? (Select all that apply)', controlType: 'multi_state_select', riskPoints: { 'Yes': 0, 'No': 0, 'N/A': 0 } },
   { id: 1, number: '4', isInitial: true, text: 'Is your business primarily in the Construction industry?', riskPoints: { 'Yes': 5, 'No': 0, 'N/A': 0 } },
   { id: 2, number: '5', isInitial: true, text: 'Is your business primarily in the Roofing industry?', riskPoints: { 'Yes': 10, 'No': 0, 'N/A': 0 } },
